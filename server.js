@@ -548,7 +548,7 @@ function getChestResponse(itemsTable, logsTable) {
 }
 
 function createChestRoutes(prefix, itemsTable, logsTable, permission) {
-  app.get(prefix, requireAuth, permission, (req, res) => {
+  app.get(prefix, requireAuth, (req, res) => {
     res.json(getChestResponse(itemsTable, logsTable));
   });
 
@@ -1572,12 +1572,6 @@ app.delete('/api/orders/:id', requireAuth, requireAdmin, (req, res, next) => {
 });
 
 app.get('/api/chest', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'resident_chief') {
-    return res.status(403).json({
-      error: 'Não tens acesso ao Baú da organização.'
-    });
-  }
-
   res.json(getChestResponse('chest_items', 'chest_logs'));
 });
 
