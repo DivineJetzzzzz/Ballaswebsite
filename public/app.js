@@ -7,6 +7,10 @@ let recipes = [];
 let orders = [];
 let chestItems = [];
 let chestLogs = [];
+let residentsChestItems = [];
+let residentsChestLogs = [];
+let officialsChestItems = [];
+let officialsChestLogs = [];
 
 let editingRecipeId = null;
 let orderQuantities = new Map();
@@ -14,6 +18,10 @@ let ammunationItems = [];
 let ammunationQuantities = new Map();
 let chestTarget = null;
 let chestAction = null;
+let residentsChestTarget = null;
+let residentsChestAction = null;
+let officialsChestTarget = null;
+let officialsChestAction = null;
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
@@ -107,6 +115,7 @@ function showPage(name) {
     dashboard: ['Visão geral', 'Resumo do teu painel privado.'],
     chest: ['Baú', 'Stock da organização.'],
     residentsChest: ['Baú Moradores', 'Stock do baú dos moradores.'],
+    officialsChest: ['Baú Oficiais', 'Stock do baú dos oficiais.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
     users: ['Utilizadores', 'Gestão de acessos e permissões.']
@@ -114,7 +123,7 @@ function showPage(name) {
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'residentsChest', 'orders', 'recipes', 'users'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'orders', 'recipes', 'users'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -329,6 +338,98 @@ function renderChest() {
 
     logsTable.innerHTML = chestLogs.length
       ? chestLogs.map((log) => `
+        <tr>
+          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td>${escapeHTML(log.itemName)}</td>
+          <td>${log.quantity}</td>
+          <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${formatDate(log.createdAt)}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+  }
+}
+
+function renderResidentsChest() {
+  const table = $('#residentsChestTable');
+  const logsTable = $('#residentsChestLogsTable');
+
+  if (table) {
+    table.innerHTML = residentsChestItems.length
+      ? residentsChestItems.map((item) => `
+        <tr>
+          <td class="username">${escapeHTML(item.name)}</td>
+          <td class="chest-quantity">${item.quantity}</td>
+          <td>${formatDate(item.updatedAt)}</td>
+          <td>
+            <div class="actions">
+              <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
+              <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
+              <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
+            </div>
+          </td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="4">O Baú Moradores ainda não tem itens.</td></tr>';
+  }
+
+  if (logsTable) {
+    const labels = {
+      add: 'Entrada',
+      remove: 'Saída',
+      create: 'Criado',
+      delete: 'Apagado'
+    };
+
+    logsTable.innerHTML = residentsChestLogs.length
+      ? residentsChestLogs.map((log) => `
+        <tr>
+          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td>${escapeHTML(log.itemName)}</td>
+          <td>${log.quantity}</td>
+          <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${formatDate(log.createdAt)}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+  }
+}
+
+function renderOfficials() {
+  const table = $('#officialsChestTable');
+  const logsTable = $('#officialsChestLogsTable');
+
+  if (table) {
+    table.innerHTML = officialsChestItems.length
+      ? officialsChestItems.map((item) => `
+        <tr>
+          <td class="username">${escapeHTML(item.name)}</td>
+          <td class="chest-quantity">${item.quantity}</td>
+          <td>${formatDate(item.updatedAt)}</td>
+          <td class="admin-only">
+            ${isAdmin() ? `
+              <div class="actions">
+                <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
+                <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
+                <button class="btn danger mini" type="button" data-officials-chest-delete="${item.id}">Apagar</button>
+              </div>
+            ` : '—'}
+          </td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="4">O Baú Oficiais ainda não tem itens.</td></tr>';
+  }
+
+  if (logsTable) {
+    const labels = {
+      add: 'Entrada',
+      remove: 'Saída',
+      create: 'Criado',
+      delete: 'Apagado'
+    };
+
+    logsTable.innerHTML = officialsChestLogs.length
+      ? officialsChestLogs.map((log) => `
         <tr>
           <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
           <td>${escapeHTML(log.itemName)}</td>
@@ -558,6 +659,48 @@ function openChestMovement(id, action) {
   $('#chestActionDialog').showModal();
 }
 
+function openResidentsMovement(id, action) {
+  const item = residentsChestItems.find((entry) => entry.id === id);
+
+  if (!item) return;
+
+  residentsChestTarget = item;
+  residentsChestAction = action;
+
+  $('#residentsChestActionTitle').textContent = action === 'add'
+    ? `Adicionar a ${item.name}`
+    : `Retirar de ${item.name}`;
+
+  $('#residentsChestActionText').textContent = action === 'add'
+    ? `Quantidade atual: ${item.quantity}.`
+    : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
+
+  $('#residentsChestActionQuantity').value = '';
+  $('#residentsChestActionError').textContent = '';
+  $('#residentsChestActionDialog').showModal();
+}
+
+function openOfficialsMovement(id, action) {
+  const item = officialsChestItems.find((entry) => entry.id === id);
+
+  if (!item) return;
+
+  officialsChestTarget = item;
+  officialsChestAction = action;
+
+  $('#officialsChestActionTitle').textContent = action === 'add'
+    ? `Adicionar a ${item.name}`
+    : `Retirar de ${item.name}`;
+
+  $('#officialsChestActionText').textContent = action === 'add'
+    ? `Quantidade atual: ${item.quantity}.`
+    : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
+
+  $('#officialsChestActionQuantity').value = '';
+  $('#officialsChestActionError').textContent = '';
+  $('#officialsChestActionDialog').showModal();
+}
+
 async function showOrderDetail(id) {
   try {
     const { order } = await request(`/api/orders/${id}`);
@@ -649,12 +792,28 @@ async function loadChest() {
   renderChest();
 }
 
+async function loadResidentsChest() {
+  const data = await request('/api/residents-chest');
+  residentsChestItems = data.items;
+  residentsChestLogs = data.logs;
+  renderResidentsChest();
+}
+
+async function loadOfficials() {
+  const data = await request('/api/officials-chest');
+  officialsChestItems = data.items;
+  officialsChestLogs = data.logs;
+  renderOfficials();
+}
+
 async function loadAll() {
   await Promise.all([
     loadUsers(),
     loadCrafting(),
     loadOrders(),
-    loadChest()
+    loadChest(),
+    loadResidentsChest(),
+    loadOfficials()
   ]);
 }
 
@@ -777,6 +936,10 @@ $('#logoutButton').addEventListener('click', async () => {
   orders = [];
   chestItems = [];
   chestLogs = [];
+  residentsChestItems = [];
+  residentsChestLogs = [];
+  officialsChestItems = [];
+  officialsChestLogs = [];
 
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
@@ -785,7 +948,6 @@ $('#logoutButton').addEventListener('click', async () => {
 
 document.querySelectorAll('.nav').forEach((button) => {
   button.addEventListener('click', () => {
-    if (button.classList.contains('residents-chief-only') && !['user', 'resident_chief'].includes(currentUser?.role)) return;
     if (button.classList.contains('admin-only') && !isAdmin()) return;
     showPage(button.dataset.page);
   });
@@ -1030,6 +1192,116 @@ $('#chestActionForm').addEventListener('submit', async (event) => {
   }
 });
 
+$('#openResidentsChestCreateDialog').addEventListener('click', () => {
+  $('#residentsChestCreateForm').reset();
+  $('#residentsChestCreateError').textContent = '';
+  $('#residentsChestCreateDialog').showModal();
+});
+
+$('#closeResidentsChestCreateDialog').addEventListener('click', () => {
+  $('#residentsChestCreateDialog').close();
+});
+
+$('#residentsChestCreateForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  $('#residentsChestCreateError').textContent = '';
+
+  try {
+    await request('/api/residents-chest', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('#residentsChestItemName').value })
+    });
+
+    $('#residentsChestCreateDialog').close();
+    await loadResidentsChest();
+  } catch (error) {
+    $('#residentsChestCreateError').textContent = error.message;
+  }
+});
+
+$('#closeResidentsChestActionDialog').addEventListener('click', () => {
+  $('#residentsChestActionDialog').close();
+});
+
+$('#residentsChestActionForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!residentsChestTarget || !residentsChestAction) return;
+
+  $('#residentsChestActionError').textContent = '';
+
+  try {
+    await request(`/api/residents-chest/${residentsChestTarget.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action: residentsChestAction,
+        quantity: $('#residentsChestActionQuantity').value
+      })
+    });
+
+    $('#residentsChestActionDialog').close();
+    await loadResidentsChest();
+  } catch (error) {
+    $('#residentsChestActionError').textContent = error.message;
+  }
+});
+
+$('#openOfficialsChestCreateDialog').addEventListener('click', () => {
+  $('#officialsChestCreateForm').reset();
+  $('#officialsChestCreateError').textContent = '';
+  $('#officialsChestCreateDialog').showModal();
+});
+
+$('#closeOfficialsChestCreateDialog').addEventListener('click', () => {
+  $('#officialsChestCreateDialog').close();
+});
+
+$('#officialsChestCreateForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  $('#officialsChestCreateError').textContent = '';
+
+  try {
+    await request('/api/officials-chest', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('#officialsChestItemName').value })
+    });
+
+    $('#officialsChestCreateDialog').close();
+    await loadOfficials();
+  } catch (error) {
+    $('#officialsChestCreateError').textContent = error.message;
+  }
+});
+
+$('#closeOfficialsChestActionDialog').addEventListener('click', () => {
+  $('#officialsChestActionDialog').close();
+});
+
+$('#officialsChestActionForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!officialsChestTarget || !officialsChestAction) return;
+
+  $('#officialsChestActionError').textContent = '';
+
+  try {
+    await request(`/api/officials-chest/${officialsChestTarget.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action: officialsChestAction,
+        quantity: $('#officialsChestActionQuantity').value
+      })
+    });
+
+    $('#officialsChestActionDialog').close();
+    await loadOfficials();
+  } catch (error) {
+    $('#officialsChestActionError').textContent = error.message;
+  }
+});
+
 $('#openOrderDialog').addEventListener('click', openOrderBuilder);
 
 $('#closeOrderDialog').addEventListener('click', () => {
@@ -1266,6 +1538,54 @@ document.addEventListener('click', async (event) => {
 
       await request(`/api/chest/${id}`, { method: 'DELETE' });
       await loadChest();
+      return;
+    }
+
+    const residentsChestAdd = event.target.closest('[data-residents-chest-add]');
+    const residentsChestRemove = event.target.closest('[data-residents-chest-remove]');
+    const residentsChestDelete = event.target.closest('[data-residents-chest-delete]');
+
+    if (residentsChestAdd) {
+      openResidentsMovement(Number(residentsChestAdd.dataset.residentsChestAdd), 'add');
+      return;
+    }
+
+    if (residentsChestRemove) {
+      openResidentsMovement(Number(residentsChestRemove.dataset.residentsChestRemove), 'remove');
+      return;
+    }
+
+    if (residentsChestDelete) {
+      const id = Number(residentsChestDelete.dataset.residentsChestDelete);
+
+      if (!confirm('Queres apagar este item do Baú Moradores?')) return;
+
+      await request(`/api/residents-chest/${id}`, { method: 'DELETE' });
+      await loadResidentsChest();
+      return;
+    }
+
+    const officialsChestAdd = event.target.closest('[data-officials-chest-add]');
+    const officialsChestRemove = event.target.closest('[data-officials-chest-remove]');
+    const officialsChestDelete = event.target.closest('[data-officials-chest-delete]');
+
+    if (officialsChestAdd) {
+      openOfficialsMovement(Number(officialsChestAdd.dataset.officialsChestAdd), 'add');
+      return;
+    }
+
+    if (officialsChestRemove) {
+      openOfficialsMovement(Number(officialsChestRemove.dataset.officialsChestRemove), 'remove');
+      return;
+    }
+
+    if (officialsChestDelete) {
+      const id = Number(officialsChestDelete.dataset.officialsChestDelete);
+
+      if (!confirm('Queres apagar este item do Baú Oficiais?')) return;
+
+      await request(`/api/officials-chest/${id}`, { method: 'DELETE' });
+      await loadOfficials();
       return;
     }
 

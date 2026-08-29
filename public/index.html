@@ -48,7 +48,8 @@
       <nav aria-label="Navegação principal">
         <button class="nav active" data-page="dashboard" type="button">⌂ <span>Visão geral</span></button>
         <button class="nav" data-page="chest" type="button">▣ <span>Baú</span></button>
-        <button class="nav residents-chief-only" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
+        <button class="nav" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
+        <button class="nav admin-only" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
         <button class="nav admin-only" data-page="orders" type="button">☷ <span>Encomendas</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
@@ -147,7 +148,7 @@
         </section>
       </section>
 
-      <section id="residentsChestPage" class="hidden residents-chief-only">
+      <section id="residentsChestPage" class="hidden">
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -192,6 +193,56 @@
                 </tr>
               </thead>
               <tbody id="residentsChestLogsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="officialsChestPage" class="hidden admin-only">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Baú de Oficiais</h3>
+              <p>Controla o stock, entradas e saídas dos oficiais.</p>
+            </div>
+            <button id="openOfficialsChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Atualizado</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="officialsChestTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Últimos movimentos</h3>
+              <p>Histórico das últimas 30 entradas e saídas.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Por</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody id="officialsChestLogsTable"></tbody>
             </table>
           </div>
         </section>
@@ -542,6 +593,44 @@
 
       <div class="modal-actions">
         <button id="closeResidentsChestActionDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="officialsChestCreateDialog">
+    <form id="officialsChestCreateForm" class="modal" novalidate>
+      <h3>Novo item no Baú de Oficiais</h3>
+      <p>O item será criado com quantidade zero.</p>
+
+      <label class="field">
+        Nome do item
+        <input id="officialsChestItemName" minlength="2" maxlength="80" required>
+      </label>
+
+      <div id="officialsChestCreateError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeOfficialsChestCreateDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Criar item</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="officialsChestActionDialog">
+    <form id="officialsChestActionForm" class="modal" novalidate>
+      <h3 id="officialsChestActionTitle">Movimento de Baú de Oficiais</h3>
+      <p id="officialsChestActionText"></p>
+
+      <label class="field">
+        Quantidade
+        <input id="officialsChestActionQuantity" type="number" min="1" step="1" required>
+      </label>
+
+      <div id="officialsChestActionError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeOfficialsChestActionDialog" class="btn secondary" type="button">Cancelar</button>
         <button class="btn primary" type="submit">Confirmar</button>
       </div>
     </form>
