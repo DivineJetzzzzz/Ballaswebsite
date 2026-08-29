@@ -156,6 +156,24 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
   );
+
+  CREATE TABLE IF NOT EXISTS officials_chest_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS officials_chest_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER,
+    item_name TEXT NOT NULL,
+    change_type TEXT NOT NULL CHECK(change_type IN ('add', 'remove', 'create', 'delete')),
+    quantity INTEGER NOT NULL DEFAULT 0,
+    actor_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+  );
 `);
 
 function addColumnIfMissing(table, column, definition) {
@@ -1715,6 +1733,13 @@ createChestRoutes(
   'residents_chest_items',
   'residents_chest_logs',
   requireResidentChiefOrUser
+);
+
+createChestRoutes(
+  '/api/officials-chest',
+  'officials_chest_items',
+  'officials_chest_logs',
+  requireAdmin
 );
 
 app.use(express.static(path.join(__dirname, 'public')));
