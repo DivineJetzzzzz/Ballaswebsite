@@ -104,9 +104,28 @@ function isAdmin() {
   return currentUser?.role === 'admin';
 }
 
+function isOfficials() {
+  return currentUser?.role === 'officials';
+}
+
+function isAdminOrOfficials() {
+  return currentUser?.role === 'admin' || currentUser?.role === 'officials';
+}
+
+function getRoleLabel(role = currentUser?.role) {
+  if (role === 'admin') return 'Administrador';
+  if (role === 'officials') return 'Oficial';
+  if (role === 'resident_chief') return 'Chefe de Moradores';
+  return 'Utilizador';
+}
+
 function setAdminVisibility() {
   document.querySelectorAll('.admin-only').forEach((element) => {
     element.classList.toggle('hidden', !isAdmin());
+  });
+
+  document.querySelectorAll('.admin-or-officials').forEach((element) => {
+    element.classList.toggle('hidden', !isAdminOrOfficials());
   });
 }
 
@@ -149,11 +168,12 @@ function renderUsers() {
   table.innerHTML = users.length
     ? users.map((user) => {
       const self = user.id === currentUser?.id;
+      const roleLabel = getRoleLabel(user.role);
 
       return `
         <tr>
           <td class="username">${escapeHTML(user.username)}${self ? ' <small>(tu)</small>' : ''}</td>
-          <td><span class="badge ${user.role}">${user.role === 'admin' ? 'Administrador' : 'Utilizador'}</span></td>
+          <td><span class="badge ${user.role}">${roleLabel}</span></td>
           <td><span class="badge ${user.active ? 'active' : 'blocked'}">${user.active ? 'Ativo' : 'Bloqueado'}</span></td>
           <td>${formatDate(user.createdAt)}</td>
           <td>
@@ -355,6 +375,8 @@ function renderResidentsChest() {
   const logsTable = $('#residentsChestLogsTable');
 
   if (table) {
+    const canModifyResidentsChest = isAdmin() || currentUser?.role === 'resident_chief';
+
     table.innerHTML = residentsChestItems.length
       ? residentsChestItems.map((item) => `
         <tr>
@@ -362,11 +384,13 @@ function renderResidentsChest() {
           <td class="chest-quantity">${item.quantity}</td>
           <td>${formatDate(item.updatedAt)}</td>
           <td>
-            <div class="actions">
-              <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
-              <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
-              <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
-            </div>
+            ${canModifyResidentsChest ? `
+              <div class="actions">
+                <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
+                <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
+                <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
+              </div>
+            ` : '—'}
           </td>
         </tr>
       `).join('')
@@ -400,14 +424,16 @@ function renderOfficials() {
   const logsTable = $('#officialsChestLogsTable');
 
   if (table) {
+    const canModifyOfficialsChest = isAdmin() || isOfficials();
+
     table.innerHTML = officialsChestItems.length
       ? officialsChestItems.map((item) => `
         <tr>
           <td class="username">${escapeHTML(item.name)}</td>
           <td class="chest-quantity">${item.quantity}</td>
           <td>${formatDate(item.updatedAt)}</td>
-          <td class="admin-only">
-            ${isAdmin() ? `
+          <td class="admin-or-officials">
+            ${canModifyOfficialsChest ? `
               <div class="actions">
                 <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
                 <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
@@ -872,9 +898,7 @@ async function initialise() {
     currentUser = data.user;
 
     $('#profileName').textContent = currentUser.username;
-    $('#profileRole').textContent = currentUser.role === 'admin'
-      ? 'Administrador'
-      : 'Utilizador';
+    $('#profileRole').textContent = getRoleLabel(currentUser.role);
 
     setAdminVisibility();
 
@@ -907,9 +931,7 @@ $('#loginForm').addEventListener('submit', async (event) => {
     $('#loginPassword').value = '';
 
     $('#profileName').textContent = currentUser.username;
-    $('#profileRole').textContent = currentUser.role === 'admin'
-      ? 'Administrador'
-      : 'Utilizador';
+    $('#profileRole').textContent = getRoleLabel(currentUser.role);
 
     setAdminVisibility();
 
@@ -948,7 +970,10 @@ $('#logoutButton').addEventListener('click', async () => {
 
 document.querySelectorAll('.nav').forEach((button) => {
   button.addEventListener('click', () => {
-    if (button.classList.contains('admin-only') && !isAdmin()) return;
+    if ((button.classList.contains('admin-only') && !isAdmin()) ||
+        (button.classList.contains('admin-or-officials') && !isAdminOrOfficials())) {
+      return;
+    }
     showPage(button.dataset.page);
   });
 });
