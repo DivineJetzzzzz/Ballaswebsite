@@ -49,8 +49,8 @@
         <button class="nav active" data-page="dashboard" type="button">⌂ <span>Visão geral</span></button>
         <button class="nav" data-page="chest" type="button">▣ <span>Baú</span></button>
         <button class="nav" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
-        <button class="nav admin-only" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
-        <button class="nav admin-only" data-page="orders" type="button">☷ <span>Encomendas</span></button>
+        <button class="nav admin-or-officials" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
+        <button class="nav admin-or-officials" data-page="orders" type="button">☷ <span>Encomendas</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
       </nav>
@@ -198,7 +198,7 @@
         </section>
       </section>
 
-      <section id="officialsChestPage" class="hidden admin-only">
+      <section id="officialsChestPage" class="hidden admin-or-officials">
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -248,7 +248,7 @@
         </section>
       </section>
 
-      <section id="ordersPage" class="hidden admin-only">
+      <section id="ordersPage" class="hidden admin-or-officials">
         <section class="panel">
   <div class="panel-head">
     <div>
@@ -272,8 +272,8 @@
               <p>Cria pedidos de crafting ou encomendas Ammunation.</p>
             </div>
             <div class="actions">
-              <button id="openOrderDialog" class="btn primary" type="button">+ Encomenda de crafting</button>
-              <button id="openAmmunationDialog" class="btn ammunation-btn" type="button">+ Ammunation</button>
+              <button id="openOrderDialog" class="btn primary admin-only" type="button">+ Encomenda de crafting</button>
+              <button id="openAmmunationDialog" class="btn ammunation-btn admin-only" type="button">+ Ammunation</button>
             </div>
           </div>
 
@@ -466,6 +466,7 @@
         Permissão
         <select id="newRole">
           <option value="resident_chief">Chefe de Moradores</option>
+          <option value="officials">Oficial</option>
           <option value="admin">Administrador</option>
         </select>
       </label>

@@ -40,7 +40,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL COLLATE NOCASE UNIQUE,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('admin', 'user', 'resident_chief')) DEFAULT 'resident_chief',
+    role TEXT NOT NULL CHECK(role IN ('admin', 'user', 'resident_chief', 'officials')) DEFAULT 'resident_chief',
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -206,7 +206,7 @@ if (!usersTableSql.includes('resident_chief')) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL COLLATE NOCASE UNIQUE,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('admin', 'user', 'resident_chief')) DEFAULT 'resident_chief',
+        role TEXT NOT NULL CHECK(role IN ('admin', 'user', 'resident_chief', 'officials')) DEFAULT 'resident_chief',
         active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -384,6 +384,68 @@ function requireResidentChiefOrUser(req, res, next) {
   if (req.user.role !== 'admin' && req.user.role !== 'resident_chief' && req.user.role !== 'user') {
     return res.status(403).json({
       error: 'Apenas administradores, chefes de moradores e utilizadores podem fazer isso.'
+    });
+  }
+
+  next();
+}
+
+function requireOfficials(req, res, next) {
+  if (req.user.role !== 'officials') {
+    return res.status(403).json({
+      error: 'Apenas oficiais podem executar esta ação.'
+    });
+  }
+
+  next();
+}
+
+function requireOfficialsOrAdmin(req, res, next) {
+  if (req.user.role !== 'officials' && req.user.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Apenas oficiais e administradores podem executar esta ação.'
+    });
+  }
+
+  next();
+}
+
+function allowOfficialsReadResidentsChest(req, res, next) {
+  // GET - allow everyone (admin, resident_chief, user, officials)
+  if (req.method === 'GET') {
+    if (!['admin', 'resident_chief', 'user', 'officials'].includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Acesso negado.'
+      });
+    }
+    return next();
+  }
+
+  // POST, PATCH, DELETE - only admin and resident_chief
+  if (req.user.role !== 'admin' && req.user.role !== 'resident_chief') {
+    return res.status(403).json({
+      error: 'Apenas administradores e chefes de moradores podem modificar o Baú de Moradores.'
+    });
+  }
+
+  next();
+}
+
+function allowOfficialsReadOrders(req, res, next) {
+  // GET - allow admin and officials
+  if (req.method === 'GET') {
+    if (!['admin', 'officials'].includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Acesso negado.'
+      });
+    }
+    return next();
+  }
+
+  // POST, PATCH, DELETE - only admin
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Apenas administradores podem modificar encomendas.'
     });
   }
 
@@ -821,9 +883,9 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res, next) => {
     const username = cleanUsername(req.body.username);
     const password = typeof req.body.password === 'string' ? req.body.password : '';
 
-    const role = req.body.role === 'admin'
-      ? 'admin'
-      : 'resident_chief';
+    const role = req.body.role === 'admin' ? 'admin' 
+               : req.body.role === 'officials' ? 'officials'
+               : 'resident_chief';
 
     if (!username || password.length < 12) {
       return res.status(400).json({
@@ -1238,7 +1300,7 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     }))
   });
 });
-app.get('/api/orders', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/orders', requireAuth, allowOfficialsReadOrders, (req, res) => {
   const rows = db.prepare(`
     SELECT orders.*, users.username AS created_by_username
     FROM orders
@@ -1281,7 +1343,7 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     next(error);
   }
 });
-app.get('/api/orders/:id', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/orders/:id', requireAuth, allowOfficialsReadOrders, (req, res) => {
   const id = ensureInteger(req.params.id, 1);
 
   if (!id) {
@@ -1732,14 +1794,14 @@ createChestRoutes(
   '/api/residents-chest',
   'residents_chest_items',
   'residents_chest_logs',
-  requireResidentChiefOrUser
+  allowOfficialsReadResidentsChest
 );
 
 createChestRoutes(
   '/api/officials-chest',
   'officials_chest_items',
   'officials_chest_logs',
-  requireAdmin
+  requireOfficialsOrAdmin
 );
 
 app.use(express.static(path.join(__dirname, 'public')));
