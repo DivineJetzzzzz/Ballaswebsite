@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NovaCore · Ballas</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="loginView" class="login-shell">
+    <div class="login-card">
+      <div class="brand">
+        <span class="brand-mark">B</span>
+        <span>NovaCore Ballas</span>
+      </div>
+
+      <p class="eyebrow">Acesso privado</p>
+      <h1>Painel da organização</h1>
+      <p>Entra com a conta autorizada para gerir receitas, encomendas, materiais e Baú.</p>
+
+      <form id="loginForm" novalidate>
+        <label class="field">
+          Utilizador
+          <input id="loginUsername" name="username" autocomplete="username" minlength="3" maxlength="30" required>
+        </label>
+
+        <label class="field">
+          Palavra-passe
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" minlength="12" required>
+        </label>
+
+        <div id="loginError" class="error" aria-live="polite"></div>
+
+        <button class="btn primary" type="submit">Entrar</button>
+      </form>
+
+      <small>Não existe registo público.</small>
+    </div>
+  </section>
+
+  <section id="appView" class="app hidden">
+    <aside>
+      <div class="brand">
+        <span class="brand-mark">B</span>
+        <span>NovaCore Ballas</span>
+      </div>
+
+      <nav aria-label="Navegação principal">
+        <button class="nav active" data-page="dashboard" type="button">⌂ <span>Visão geral</span></button>
+        <button class="nav" data-page="chest" type="button">▣ <span>Baú</span></button>
+        <button class="nav" data-page="orders" type="button">☷ <span>Encomendas</span></button>
+        <button class="nav" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
+        <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
+      </nav>
+
+      <div class="profile">
+        <strong id="profileName">—</strong>
+        <small id="profileRole">—</small>
+        <button id="logoutButton" class="btn secondary" type="button">Terminar sessão</button>
+      </div>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <h2 id="pageTitle">Visão geral</h2>
+          <p id="pageSubtitle">Resumo do teu painel privado.</p>
+        </div>
+        <time id="currentDate"></time>
+      </header>
+
+      <section id="dashboardPage">
+        <div class="metrics">
+          <article>
+            <span>Utilizadores</span>
+            <strong id="totalUsers">0</strong>
+            <small>Registados no sistema</small>
+          </article>
+
+          <article>
+            <span>Com acesso</span>
+            <strong id="activeUsers">0</strong>
+            <small>Contas ativas</small>
+          </article>
+
+          <article>
+            <span>Administradores</span>
+            <strong id="adminUsers">0</strong>
+            <small>Podem gerir o painel</small>
+          </article>
+        </div>
+
+        <section class="panel">
+          <h3>Painel pronto</h3>
+          <p>Usa o menu para gerir o stock do Baú, receitas, encomendas e acessos.</p>
+        </section>
+      </section>
+
+      <section id="chestPage" class="hidden">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Baú da organização</h3>
+              <p>Controla o stock, entradas e saídas.</p>
+            </div>
+            <button id="openChestCreateDialog" class="btn primary admin-only" type="button">+ Novo item</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Atualizado</th>
+                  <th class="admin-only">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="chestTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Últimos movimentos</h3>
+              <p>Histórico das últimas 30 entradas e saídas.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Por</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody id="chestLogsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="ordersPage" class="hidden">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Encomendas</h3>
+              <p>Cria pedidos de crafting ou encomendas Ammunation.</p>
+            </div>
+            <div class="actions">
+              <button id="openOrderDialog" class="btn primary" type="button">+ Encomenda de crafting</button>
+              <button id="openAmmunationDialog" class="btn ammunation-btn" type="button">+ Ammunation</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Encomenda</th>
+                  <th>Criada por</th>
+                  <th>Pagamento</th>
+                  <th>Estado</th>
+                  <th>Criada em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="ordersTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="recipesPage" class="hidden">
+        <section class="panel admin-only">
+          <div class="panel-head">
+            <div>
+              <h3>Nova receita</h3>
+              <p>Define item, preço e materiais necessários por unidade.</p>
+            </div>
+          </div>
+
+          <form id="recipeForm" novalidate>
+            <div class="form-grid">
+              <label class="field">
+                Nome do item
+                <input id="recipeName" maxlength="80" required>
+              </label>
+
+              <label class="field">
+                Categoria
+                <select id="recipeCategory" required>
+                  <option value="Blueprints">Blueprints</option>
+                  <option value="Corpos de armas">Corpos de armas</option>
+                  <option value="Armas de Orange">Armas de Orange</option>
+                  <option value="Armas de Red">Armas de Red</option>
+                  <option value="Carregadores">Carregadores</option>
+                  <option value="Attachments">Attachments</option>
+                  <option value="Ammunation">Ammunation</option>
+                </select>
+              </label>
+
+              <label class="field">
+                Preço unitário
+                <input id="recipePrice" type="number" min="0" step="1" value="0" required>
+              </label>
+            </div>
+
+            <div class="ingredients-header">
+              <strong>Materiais por unidade</strong>
+              <button id="addRecipeIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+            </div>
+
+            <div id="recipeIngredients" class="ingredients-editor"></div>
+            <div id="recipeError" class="error" aria-live="polite"></div>
+
+            <button class="btn primary" type="submit">Criar receita</button>
+          </form>
+        </section>
+
+        <section class="panel admin-only">
+          <div class="panel-head">
+            <div>
+              <h3>Materiais de farm</h3>
+              <p>Os materiais ativos podem ser usados nas receitas.</p>
+            </div>
+          </div>
+
+          <form id="materialForm" class="inline-form" novalidate>
+            <input id="materialName" maxlength="60" placeholder="Ex.: Ferro" required>
+            <button class="btn secondary" type="submit">Adicionar material</button>
+          </form>
+
+          <div id="materialsList" class="materials-list"></div>
+          <div id="materialError" class="error" aria-live="polite"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Receitas de crafting</h3>
+              <p>Ativa, desativa, edita ou remove receitas.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Categoria</th>
+                  <th>Preço</th>
+                  <th>Materiais por unidade</th>
+                  <th>Estado</th>
+                  <th class="admin-only">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="recipesTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="usersPage" class="hidden admin-only">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Gestão de utilizadores</h3>
+              <p>Cria, bloqueia, reativa ou elimina contas.</p>
+            </div>
+            <div class="actions">
+  <button id="openPasswordDialog" class="btn secondary" type="button">Alterar a minha palavra-passe</button>
+  <button id="openUserDialog" class="btn primary" type="button">+ Novo utilizador</button>
+</div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Utilizador</th>
+                  <th>Permissão</th>
+                  <th>Estado</th>
+                  <th>Criado em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="usersTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </section>
+
+  <dialog id="userDialog">
+    <form id="userForm" class="modal" novalidate>
+      <h3>Novo utilizador</h3>
+      <p>Cria uma conta com acesso ao painel.</p>
+
+      <label class="field">
+        Utilizador
+        <input id="newUsername" minlength="3" maxlength="30" required>
+      </label>
+
+      <label class="field">
+        Palavra-passe
+        <input id="newPassword" type="password" minlength="12" required>
+      </label>
+
+      <label class="field">
+        Permissão
+        <select id="newRole">
+          <option value="user">Utilizador</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </label>
+
+      <div id="userError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeUserDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Criar utilizador</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="editRecipeDialog">
+    <form id="editRecipeForm" class="modal recipe-modal" novalidate>
+      <h3>Editar receita</h3>
+      <p>Altera o item, categoria, preço e materiais.</p>
+
+      <label class="field">
+        Nome do item
+        <input id="editRecipeName" minlength="2" maxlength="80" required>
+      </label>
+
+      <label class="field">
+        Categoria
+        <select id="editRecipeCategory" required>
+          <option value="Blueprints">Blueprints</option>
+          <option value="Corpos de armas">Corpos de armas</option>
+          <option value="Armas de Orange">Armas de Orange</option>
+          <option value="Armas de Red">Armas de Red</option>
+          <option value="Carregadores">Carregadores</option>
+          <option value="Attachments">Attachments</option>
+          <option value="Ammunation">Ammunation</option>
+        </select>
+      </label>
+
+      <label class="field">
+        Preço unitário
+        <input id="editRecipePrice" type="number" min="0" step="1" required>
+      </label>
+
+      <div class="ingredients-header">
+        <strong>Materiais por unidade</strong>
+        <button id="addEditIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+      </div>
+
+      <div id="editIngredientsEditor" class="ingredients-editor"></div>
+      <div id="editRecipeError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeEditRecipeDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Guardar alterações</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chestCreateDialog">
+    <form id="chestCreateForm" class="modal" novalidate>
+      <h3>Novo item no Baú</h3>
+      <p>O item será criado com quantidade zero.</p>
+
+      <label class="field">
+        Nome do item
+        <input id="chestItemName" minlength="2" maxlength="80" required>
+      </label>
+
+      <div id="chestCreateError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeChestCreateDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Criar item</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chestActionDialog">
+    <form id="chestActionForm" class="modal" novalidate>
+      <h3 id="chestActionTitle">Movimento de Baú</h3>
+      <p id="chestActionText"></p>
+
+      <label class="field">
+        Quantidade
+        <input id="chestActionQuantity" type="number" min="1" step="1" required>
+      </label>
+
+      <div id="chestActionError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeChestActionDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="orderDialog" class="order-modal">
+    <form id="orderForm" class="modal order-modal" novalidate>
+      <div class="detail-head">
+        <div>
+          <h3>Nova encomenda de crafting</h3>
+          <p>Escolhe receitas e quantidades. O sistema calcula os materiais necessários.</p>
+        </div>
+        <button id="closeOrderDialog" class="btn secondary" type="button">Cancelar</button>
+      </div>
+
+      <label class="field">
+        Título da encomenda
+        <input id="orderTitle" minlength="3" maxlength="100" required>
+      </label>
+
+      <label class="field">
+        Nota opcional
+        <textarea id="orderDescription" maxlength="2000" placeholder="Informação adicional para a encomenda"></textarea>
+      </label>
+
+      <div class="order-builder">
+        <section>
+          <label class="field">
+            Filtrar categoria
+            <select id="orderCategoryFilter"></select>
+          </label>
+
+          <div id="orderRecipesList" class="order-recipe-list"></div>
+        </section>
+
+        <aside class="calculator">
+          <h4>Resumo da encomenda</h4>
+          <div id="orderCalculator"></div>
+        </aside>
+      </div>
+
+      <div id="orderError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button class="btn primary" type="submit">Criar encomenda</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="orderDetailDialog">
+    <section class="modal order-modal">
+      <div class="detail-head">
+        <div>
+          <h3 id="detailTitle">Encomenda</h3>
+          <p id="detailMeta"></p>
+        </div>
+        <button id="closeOrderDetailDialog" class="btn secondary" type="button">Fechar</button>
+      </div>
+
+      <div id="orderDetailContent"></div>
+    </section>
+  </dialog>
+
+  <dialog id="ammunationDialog" class="order-modal">
+    <form id="ammunationForm" class="modal order-modal" novalidate>
+      <div class="detail-head">
+        <div>
+          <h3>Nova encomenda Ammunation</h3>
+          <p>Escolhe os itens, a quantidade e o método de pagamento.</p>
+        </div>
+        <button id="closeAmmunationDialog" class="btn secondary" type="button">Cancelar</button>
+      </div>
+
+      <label class="field">
+        Título da encomenda
+        <input id="ammunationTitle" minlength="3" maxlength="100" required>
+      </label>
+
+      <div class="payment-choice">
+        <strong>Método de pagamento</strong>
+
+        <label class="payment-card clean-payment">
+          <input type="radio" name="paymentMethod" value="clean" checked>
+          <span>
+            <b>Dinheiro limpo</b>
+            <small>Usa o preço definido para pagamento limpo.</small>
+          </span>
+        </label>
+
+        <label class="payment-card dirty-payment">
+          <input type="radio" name="paymentMethod" value="dirty">
+          <span>
+            <b>Dinheiro sujo</b>
+            <small>Usa o preço definido para pagamento sujo.</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="order-builder">
+        <section>
+          <div id="ammunationItemsList" class="order-recipe-list"></div>
+        </section>
+
+        <aside class="calculator">
+          <h4>Resumo Ammunation</h4>
+          <div id="ammunationCalculator"></div>
+        </aside>
+      </div>
+
+      <div id="ammunationError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button class="btn ammunation-btn" type="submit">Criar encomenda</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="passwordDialog">
+    <form id="passwordForm" class="modal" novalidate>
+      <h3>Alterar palavra-passe</h3>
+      <p>Confirma a tua palavra-passe atual e define uma nova palavra-passe com pelo menos 12 caracteres.</p>
+
+      <label class="field">
+        Palavra-passe atual
+        <input id="currentPassword" type="password" autocomplete="current-password" minlength="1" required>
+      </label>
+
+      <label class="field">
+        Nova palavra-passe
+        <input id="newOwnPassword" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+
+      <label class="field">
+        Confirmar nova palavra-passe
+        <input id="confirmOwnPassword" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+
+      <div id="passwordError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closePasswordDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Guardar palavra-passe</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>
