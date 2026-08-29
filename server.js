@@ -381,9 +381,9 @@ function requireResidentChief(req, res, next) {
 }
 
 function requireResidentChiefOrUser(req, res, next) {
-  if (req.user.role !== 'resident_chief' && req.user.role !== 'user') {
+  if (req.user.role !== 'admin' && req.user.role !== 'resident_chief' && req.user.role !== 'user') {
     return res.status(403).json({
-      error: 'Apenas utilizadores e chefes de moradores podem fazer isso.'
+      error: 'Apenas administradores, chefes de moradores e utilizadores podem fazer isso.'
     });
   }
 
