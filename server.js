@@ -362,6 +362,16 @@ function requireResidentChief(req, res, next) {
   next();
 }
 
+function requireResidentChiefOrUser(req, res, next) {
+  if (req.user.role !== 'resident_chief' && req.user.role !== 'user') {
+    return res.status(403).json({
+      error: 'Apenas utilizadores e chefes de moradores podem fazer isso.'
+    });
+  }
+
+  next();
+}
+
 function publicMaterial(material) {
   return {
     id: material.id,
@@ -1704,7 +1714,7 @@ createChestRoutes(
   '/api/residents-chest',
   'residents_chest_items',
   'residents_chest_logs',
-  requireResidentChief
+  requireResidentChiefOrUser
 );
 
 app.use(express.static(path.join(__dirname, 'public')));
