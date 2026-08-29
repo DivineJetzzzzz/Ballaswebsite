@@ -106,6 +106,7 @@ function showPage(name) {
   const meta = {
     dashboard: ['Visão geral', 'Resumo do teu painel privado.'],
     chest: ['Baú', 'Stock da organização.'],
+    residentsChest: ['Baú Moradores', 'Stock do baú dos moradores.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
     users: ['Utilizadores', 'Gestão de acessos e permissões.']
@@ -113,7 +114,7 @@ function showPage(name) {
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'orders', 'recipes', 'users'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'orders', 'recipes', 'users'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -784,6 +785,7 @@ $('#logoutButton').addEventListener('click', async () => {
 
 document.querySelectorAll('.nav').forEach((button) => {
   button.addEventListener('click', () => {
+    if (button.classList.contains('residents-chief-only') && !['user', 'resident_chief'].includes(currentUser?.role)) return;
     if (button.classList.contains('admin-only') && !isAdmin()) return;
     showPage(button.dataset.page);
   });
