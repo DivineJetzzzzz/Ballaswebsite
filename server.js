@@ -805,9 +805,13 @@ function getCatalogItems(includeInactive = false) {
   }));
 }
 
-function validateRecipeMaterials(value) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 30) {
+function validateRecipeMaterials(value, { required } = { required: true }) {
+  if (!Array.isArray(value) || value.length > 30) {
     return null;
+  }
+
+  if (value.length === 0) {
+    return required ? null : [];
   }
 
   const used = new Set();
@@ -1760,11 +1764,18 @@ app.post('/api/catalog', requireAuth, requireAdmin, (req, res, next) => {
     const name = cleanText(req.body.name, 2, 80);
     const category = cleanText(req.body.category, 2, 40);
     const unitPrice = ensureInteger(req.body.unitPrice, 0, 1000000000);
-    const recipeMaterials = validateRecipeMaterials(req.body.materials);
+    // A categoria Ammunation só é vendida a dinheiro (limpo/sujo), nunca a
+    // materiais, por isso não faz sentido exigir uma receita de materiais
+    // para estes itens.
+    const recipeMaterials = validateRecipeMaterials(req.body.materials, {
+      required: category !== 'Ammunation'
+    });
 
     if (!name || !category || unitPrice === null || !recipeMaterials) {
       return res.status(400).json({
-        error: 'Preenche nome, categoria, preço e materiais da receita corretamente.'
+        error: category === 'Ammunation'
+          ? 'Preenche nome, categoria e preço corretamente.'
+          : 'Preenche nome, categoria, preço e materiais da receita corretamente.'
       });
     }
 
@@ -1810,11 +1821,15 @@ app.put('/api/catalog/:id', requireAuth, requireAdmin, (req, res, next) => {
     const name = cleanText(req.body.name, 2, 80);
     const category = cleanText(req.body.category, 2, 40);
     const unitPrice = ensureInteger(req.body.unitPrice, 0, 1000000000);
-    const recipeMaterials = validateRecipeMaterials(req.body.materials);
+    const recipeMaterials = validateRecipeMaterials(req.body.materials, {
+      required: category !== 'Ammunation'
+    });
 
     if (!id || !name || !category || unitPrice === null || !recipeMaterials) {
       return res.status(400).json({
-        error: 'Preenche nome, categoria, preço e materiais da receita corretamente.'
+        error: category === 'Ammunation'
+          ? 'Preenche nome, categoria e preço corretamente.'
+          : 'Preenche nome, categoria, preço e materiais da receita corretamente.'
       });
     }
 
@@ -1942,11 +1957,6 @@ app.delete('/api/catalog/:id', requireAuth, requireAdmin, (req, res, next) => {
   }
 });
 app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req, res) => {
-  // A calculadora de materiais pendentes soma os materiais de TODAS as
-  // encomendas pendentes que tenham uma receita associada (order_material_totals),
-  // independentemente do método de pagamento. Mesmo pedidos pagos a dinheiro
-  // limpo/sujo consomem materiais para serem fabricados, por isso entram
-  // aqui na mesma para simular os valores em falta.
   const materials = db.prepare(`
     SELECT
       order_material_totals.material_name AS name,
@@ -1954,6 +1964,7 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     FROM order_material_totals
     INNER JOIN orders ON orders.id = order_material_totals.order_id
     WHERE orders.status = 'pending'
+      AND orders.payment_method = 'materials'
     GROUP BY order_material_totals.material_name
     ORDER BY order_material_totals.material_name COLLATE NOCASE ASC
   `).all();
@@ -1962,7 +1973,7 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     SELECT COUNT(*) AS count
     FROM orders
     WHERE status = 'pending'
-      AND id IN (SELECT DISTINCT order_id FROM order_material_totals)
+      AND payment_method = 'materials'
   `).get().count;
 
   res.json({
@@ -2095,6 +2106,12 @@ app.post('/api/orders/crafting', requireAuth, requireAdmin, (req, res, next) => 
       if (!item || !item.active) {
         return res.status(400).json({
           error: 'Uma das receitas já não existe ou está desativada.'
+        });
+      }
+
+      if (item.category === 'Ammunation') {
+        return res.status(400).json({
+          error: `"${item.name}" é um item Ammunation e só pode ser encomendado a dinheiro, através de "+ Ammunation".`
         });
       }
 
@@ -2640,22 +2657,19 @@ app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res,
 
       selections.push({ item, quantity: publicItem.quantity });
 
-      // Independentemente do método de pagamento (materiais, dinheiro limpo
-      // ou dinheiro sujo), a receita do item já define os materiais
-      // necessários para o fabricar. Calculamos sempre os totais para que a
-      // calculadora de materiais pendentes simule os valores em falta,
-      // mesmo em pedidos pagos a dinheiro.
-      const ingredients = ingredientsQuery.all(item.id);
+      if (paymentMethod === 'materials') {
+        const ingredients = ingredientsQuery.all(item.id);
 
-      for (const ingredient of ingredients) {
-        const total = materialTotals.get(ingredient.id) || {
-          materialId: ingredient.id,
-          name: ingredient.name,
-          quantity: 0
-        };
+        for (const ingredient of ingredients) {
+          const total = materialTotals.get(ingredient.id) || {
+            materialId: ingredient.id,
+            name: ingredient.name,
+            quantity: 0
+          };
 
-        total.quantity += ingredient.quantity * publicItem.quantity;
-        materialTotals.set(ingredient.id, total);
+          total.quantity += ingredient.quantity * publicItem.quantity;
+          materialTotals.set(ingredient.id, total);
+        }
       }
     }
 
@@ -2694,7 +2708,7 @@ app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res,
         );
       }
 
-      if (materialTotals.size) {
+      if (paymentMethod === 'materials' && materialTotals.size) {
         const insertMaterial = db.prepare(`
           INSERT INTO order_material_totals (order_id, material_id, material_name, quantity)
           VALUES (?, ?, ?, ?)
