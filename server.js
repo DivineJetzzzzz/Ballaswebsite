@@ -174,6 +174,24 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
   );
+
+  CREATE TABLE IF NOT EXISTS orders_chest_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK(quantity >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS orders_chest_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER,
+    item_name TEXT NOT NULL,
+    change_type TEXT NOT NULL CHECK(change_type IN ('add', 'remove', 'create', 'delete')),
+    quantity INTEGER NOT NULL DEFAULT 0,
+    actor_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+  );
 `);
 
 function addColumnIfMissing(table, column, definition) {
@@ -415,21 +433,11 @@ function requireOfficialsOrAdmin(req, res, next) {
   next();
 }
 
-function allowOfficialsReadResidentsChest(req, res, next) {
-  // GET - allow everyone (admin, resident_chief, user, officials)
-  if (req.method === 'GET') {
-    if (!['admin', 'resident_chief', 'user', 'officials'].includes(req.user.role)) {
-      return res.status(403).json({
-        error: 'Acesso negado.'
-      });
-    }
-    return next();
-  }
-
-  // POST, PATCH, DELETE - only admin and resident_chief
+function requireResidentChiefOrAdmin(req, res, next) {
+  // Apenas administradores e chefes de moradores podem ver ou modificar o Baú de Moradores.
   if (req.user.role !== 'admin' && req.user.role !== 'resident_chief') {
     return res.status(403).json({
-      error: 'Apenas administradores e chefes de moradores podem modificar o Baú de Moradores.'
+      error: 'Apenas administradores e chefes de moradores podem aceder ao Baú de Moradores.'
     });
   }
 
@@ -643,7 +651,7 @@ function getChestResponse(itemsTable, logsTable) {
 }
 
 function createChestRoutes(prefix, itemsTable, logsTable, permission) {
-  app.get(prefix, requireAuth, (req, res) => {
+  app.get(prefix, requireAuth, permission, (req, res) => {
     res.json(getChestResponse(itemsTable, logsTable));
   });
 
@@ -1701,7 +1709,7 @@ app.post('/api/chest', requireAuth, requireAdmin, (req, res, next) => {
   } catch (error) {
     if (String(error.message).includes('UNIQUE constraint failed')) {
       return res.status(409).json({
-        error: 'Já existe um item com esse nome no Baú.'
+        error: 'Já existe um item com esse nome no Baú 113.'
       });
     }
 
@@ -1716,7 +1724,7 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     const quantity = ensureInteger(req.body.quantity, 1, 1000000000);
 
     if (!id || !quantity) {
-      return res.status(400).json({ error: 'Movimento de Baú inválido.' });
+      return res.status(400).json({ error: 'Movimento de Baú 113 inválido.' });
     }
 
     const item = db.prepare(`
@@ -1726,12 +1734,12 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     `).get(id);
 
     if (!item) {
-      return res.status(404).json({ error: 'Item do Baú não encontrado.' });
+      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
     }
 
     if (action === 'remove' && item.quantity < quantity) {
       return res.status(400).json({
-        error: 'Não existe quantidade suficiente no Baú.'
+        error: 'Não existe quantidade suficiente no Baú 113.'
       });
     }
 
@@ -1768,7 +1776,7 @@ app.delete('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     const id = ensureInteger(req.params.id, 1);
 
     if (!id) {
-      return res.status(400).json({ error: 'Item do Baú inválido.' });
+      return res.status(400).json({ error: 'Item do Baú 113 inválido.' });
     }
 
     const item = db.prepare(`
@@ -1778,7 +1786,7 @@ app.delete('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     `).get(id);
 
     if (!item) {
-      return res.status(404).json({ error: 'Item do Baú não encontrado.' });
+      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
     }
 
     db.prepare(`
@@ -1799,7 +1807,7 @@ createChestRoutes(
   '/api/residents-chest',
   'residents_chest_items',
   'residents_chest_logs',
-  allowOfficialsReadResidentsChest
+  requireResidentChiefOrAdmin
 );
 
 createChestRoutes(
@@ -1807,6 +1815,13 @@ createChestRoutes(
   'officials_chest_items',
   'officials_chest_logs',
   requireOfficialsOrAdmin
+);
+
+createChestRoutes(
+  '/api/orders-chest',
+  'orders_chest_items',
+  'orders_chest_logs',
+  requireAdmin
 );
 
 app.use(express.static(path.join(__dirname, 'public')));
