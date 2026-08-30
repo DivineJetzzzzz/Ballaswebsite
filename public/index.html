@@ -57,6 +57,7 @@
         <button class="nav orders-viewer" data-page="orders" type="button">☷ <span>Encomendas</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
+        <button class="nav admin-only" data-page="auditLogs" type="button">🗒 <span>Registo</span></button>
       </nav>
 
       <div class="profile">
@@ -99,9 +100,30 @@
           </article>
         </div>
 
+        <div class="metrics orders-viewer" id="dashboardRoleMetrics">
+          <article>
+            <span>Encomendas pendentes</span>
+            <strong id="pendingOrdersCount">0</strong>
+            <small>À espera de processamento</small>
+          </article>
+
+          <article>
+            <span>As tuas encomendas</span>
+            <strong id="myOrdersCount">0</strong>
+            <small>Criadas por ti</small>
+          </article>
+        </div>
+
         <section class="panel">
-          <h3>Painel pronto</h3>
-          <p id="dashboardMessage">Usa o menu para gerir os módulos disponíveis na tua função.</p>
+          <div class="panel-head">
+            <div>
+              <h3 id="dashboardWelcomeTitle">Painel pronto</h3>
+              <p id="dashboardMessage">Usa o menu para gerir os módulos disponíveis na tua função.</p>
+            </div>
+            <div class="actions">
+              <button id="openPasswordDialog" class="btn secondary" type="button">Alterar a minha palavra-passe</button>
+            </div>
+          </div>
         </section>
       </section>
 
@@ -403,7 +425,6 @@
               <p>Cria, bloqueia, reativa ou elimina contas.</p>
             </div>
             <div class="actions">
-              <button id="openPasswordDialog" class="btn secondary" type="button">Alterar a minha palavra-passe</button>
               <button id="openUserDialog" class="btn primary" type="button">+ Novo utilizador</button>
             </div>
           </div>
@@ -420,6 +441,31 @@
                 </tr>
               </thead>
               <tbody id="usersTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="auditLogsPage" class="hidden admin-only">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Registo de atividade</h3>
+              <p>Histórico das últimas 200 ações realizadas no sistema.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Autor</th>
+                  <th>Ação</th>
+                  <th>Alvo</th>
+                </tr>
+              </thead>
+              <tbody id="auditLogsTable"></tbody>
             </table>
           </div>
         </section>
@@ -476,6 +522,7 @@
         <select id="newRole">
           <option value="resident_chief">Chefe de Moradores</option>
           <option value="officials">Oficial</option>
+          <option value="user">Utilizador</option>
           <option value="admin">Administrador</option>
         </select>
       </label>
@@ -485,6 +532,30 @@
       <div class="modal-actions">
         <button id="closeUserDialog" class="btn secondary" type="button">Cancelar</button>
         <button class="btn primary" type="submit">Criar utilizador</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="resetPasswordDialog">
+    <form id="resetPasswordForm" class="modal" novalidate>
+      <h3>Repor palavra-passe</h3>
+      <p>Define uma nova palavra-passe para <strong id="resetPasswordUsername"></strong>. Não é necessário saber a palavra-passe atual.</p>
+
+      <label class="field">
+        Nova palavra-passe
+        <input id="resetNewPassword" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+
+      <label class="field">
+        Confirmar nova palavra-passe
+        <input id="resetConfirmPassword" type="password" autocomplete="new-password" minlength="12" required>
+      </label>
+
+      <div id="resetPasswordError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeResetPasswordDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Repor palavra-passe</button>
       </div>
     </form>
   </dialog>
