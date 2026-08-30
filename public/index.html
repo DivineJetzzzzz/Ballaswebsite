@@ -417,12 +417,19 @@
               </label>
             </div>
 
-            <div class="ingredients-header">
-              <strong>Materiais por unidade</strong>
-              <button id="addRecipeIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+            <div id="recipeIngredientsSection">
+              <div class="ingredients-header">
+                <strong>Materiais por unidade</strong>
+                <button id="addRecipeIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+              </div>
+
+              <div id="recipeIngredients" class="ingredients-editor"></div>
             </div>
 
-            <div id="recipeIngredients" class="ingredients-editor"></div>
+            <p id="recipeAmmunationHint" class="form-hint hidden">
+              Itens Ammunation são vendidos só a dinheiro (limpo/sujo) e não precisam de materiais.
+            </p>
+
             <div id="recipeError" class="error" aria-live="polite"></div>
 
             <button class="btn primary" type="submit">Criar receita</button>
@@ -643,12 +650,19 @@
         <input id="editRecipePrice" type="number" min="0" step="1" required>
       </label>
 
-      <div class="ingredients-header">
-        <strong>Materiais por unidade</strong>
-        <button id="addEditIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+      <div id="editIngredientsSection">
+        <div class="ingredients-header">
+          <strong>Materiais por unidade</strong>
+          <button id="addEditIngredient" class="btn secondary mini" type="button">+ Adicionar material</button>
+        </div>
+
+        <div id="editIngredientsEditor" class="ingredients-editor"></div>
       </div>
 
-      <div id="editIngredientsEditor" class="ingredients-editor"></div>
+      <p id="editRecipeAmmunationHint" class="form-hint hidden">
+        Itens Ammunation são vendidos só a dinheiro (limpo/sujo) e não precisam de materiais.
+      </p>
+
       <div id="editRecipeError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
