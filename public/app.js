@@ -355,22 +355,22 @@ function renderChest() {
   if (table) {
     table.innerHTML = chestItems.length
       ? chestItems.map((item) => `
-        <tr>
-          <td class="username">${escapeHTML(item.name)}</td>
-          <td class="chest-quantity">${item.quantity}</td>
-          <td>${formatDate(item.updatedAt)}</td>
-          <td class="admin-only">
-            ${isAdmin() ? `
-              <div class="actions">
-                <button class="btn secondary mini" type="button" data-chest-add="${item.id}">+ Entrada</button>
-                <button class="btn secondary mini" type="button" data-chest-remove="${item.id}">− Saída</button>
-                <button class="btn danger mini" type="button" data-chest-delete="${item.id}">Apagar</button>
-              </div>
-            ` : '—'}
-          </td>
-        </tr>
+        <div class="chest-card">
+          <div class="chest-card-head">
+            <span class="chest-card-name">${escapeHTML(item.name)}</span>
+          </div>
+          <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
+          ${isAdmin() ? `
+            <div class="chest-card-actions admin-only">
+              <button class="btn secondary mini" type="button" data-chest-add="${item.id}">+ Entrada</button>
+              <button class="btn secondary mini" type="button" data-chest-remove="${item.id}">− Saída</button>
+              <button class="btn danger mini" type="button" data-chest-delete="${item.id}">Apagar</button>
+            </div>
+          ` : ''}
+        </div>
       `).join('')
-      : '<tr><td colspan="4">O Baú 113 ainda não tem itens.</td></tr>';
+      : '<div class="chest-grid-empty">O Baú 113 ainda não tem itens.</div>';
   }
 
   if (logsTable) {
@@ -404,22 +404,22 @@ function renderResidentsChest() {
 
     table.innerHTML = residentsChestItems.length
       ? residentsChestItems.map((item) => `
-        <tr>
-          <td class="username">${escapeHTML(item.name)}</td>
-          <td class="chest-quantity">${item.quantity}</td>
-          <td>${formatDate(item.updatedAt)}</td>
-          <td>
-            ${canModifyResidentsChest ? `
-              <div class="actions">
-                <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
-                <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
-                <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
-              </div>
-            ` : '—'}
-          </td>
-        </tr>
+        <div class="chest-card">
+          <div class="chest-card-head">
+            <span class="chest-card-name">${escapeHTML(item.name)}</span>
+          </div>
+          <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
+          ${canModifyResidentsChest ? `
+            <div class="chest-card-actions">
+              <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
+              <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
+              <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
+            </div>
+          ` : ''}
+        </div>
       `).join('')
-      : '<tr><td colspan="4">O Baú Moradores ainda não tem itens.</td></tr>';
+      : '<div class="chest-grid-empty">O Baú Moradores ainda não tem itens.</div>';
   }
 
   if (logsTable) {
@@ -453,22 +453,22 @@ function renderOfficials() {
 
     table.innerHTML = officialsChestItems.length
       ? officialsChestItems.map((item) => `
-        <tr>
-          <td class="username">${escapeHTML(item.name)}</td>
-          <td class="chest-quantity">${item.quantity}</td>
-          <td>${formatDate(item.updatedAt)}</td>
-          <td class="admin-or-officials">
-            ${canModifyOfficialsChest ? `
-              <div class="actions">
-                <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
-                <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
-                <button class="btn danger mini" type="button" data-officials-chest-delete="${item.id}">Apagar</button>
-              </div>
-            ` : '—'}
-          </td>
-        </tr>
+        <div class="chest-card">
+          <div class="chest-card-head">
+            <span class="chest-card-name">${escapeHTML(item.name)}</span>
+          </div>
+          <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
+          ${canModifyOfficialsChest ? `
+            <div class="chest-card-actions admin-or-officials">
+              <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
+              <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
+              <button class="btn danger mini" type="button" data-officials-chest-delete="${item.id}">Apagar</button>
+            </div>
+          ` : ''}
+        </div>
       `).join('')
-      : '<tr><td colspan="4">O Baú Oficiais ainda não tem itens.</td></tr>';
+      : '<div class="chest-grid-empty">O Baú Oficiais ainda não tem itens.</div>';
   }
 
   if (logsTable) {
@@ -500,22 +500,22 @@ function renderOrdersChest() {
   if (table) {
     table.innerHTML = ordersChestItems.length
       ? ordersChestItems.map((item) => `
-        <tr>
-          <td class="username">${escapeHTML(item.name)}</td>
-          <td class="chest-quantity">${item.quantity}</td>
-          <td>${formatDate(item.updatedAt)}</td>
-          <td>
-            ${isAdmin() ? `
-              <div class="actions">
-                <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
-                <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
-                <button class="btn danger mini" type="button" data-orders-chest-delete="${item.id}">Apagar</button>
-              </div>
-            ` : '—'}
-          </td>
-        </tr>
+        <div class="chest-card">
+          <div class="chest-card-head">
+            <span class="chest-card-name">${escapeHTML(item.name)}</span>
+          </div>
+          <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
+          ${isAdmin() ? `
+            <div class="chest-card-actions">
+              <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
+              <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
+              <button class="btn danger mini" type="button" data-orders-chest-delete="${item.id}">Apagar</button>
+            </div>
+          ` : ''}
+        </div>
       `).join('')
-      : '<tr><td colspan="4">O Baú de Encomendas ainda não tem itens.</td></tr>';
+      : '<div class="chest-grid-empty">O Baú de Encomendas ainda não tem itens.</div>';
   }
 
   if (logsTable) {
