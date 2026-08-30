@@ -264,6 +264,47 @@ if (
   db.pragma('foreign_keys = ON');
 }
 
+const ordersTableSql = db.prepare(`
+  SELECT sql
+  FROM sqlite_master
+  WHERE type = 'table' AND name = 'orders'
+`).get()?.sql || '';
+
+if (ordersTableSql.includes('ON DELETE RESTRICT')) {
+  db.pragma('foreign_keys = OFF');
+
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE orders RENAME TO orders_old;
+
+      CREATE TABLE orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'cancelled')) DEFAULT 'pending',
+        payment_method TEXT NOT NULL DEFAULT 'materials',
+        created_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+
+      INSERT INTO orders (
+        id, title, description, status, payment_method,
+        created_by, created_at, updated_at
+      )
+      SELECT
+        id, title, description, status, payment_method,
+        created_by, created_at, updated_at
+      FROM orders_old;
+
+      DROP TABLE orders_old;
+    `);
+  })();
+
+  db.pragma('foreign_keys = ON');
+}
+
 db.exec(`
   UPDATE catalog_items
   SET clean_price = unit_price
@@ -445,9 +486,9 @@ function requireResidentChiefOrAdmin(req, res, next) {
 }
 
 function allowOfficialsReadOrders(req, res, next) {
-  // GET - allow admin, officials e chefes de moradores (apenas leitura)
+  // GET - allow admin, officials, chefes de moradores e utilizadores (apenas leitura)
   if (req.method === 'GET') {
-    if (!['admin', 'officials', 'resident_chief'].includes(req.user.role)) {
+    if (!['admin', 'officials', 'resident_chief', 'user'].includes(req.user.role)) {
       return res.status(403).json({
         error: 'Acesso negado.'
       });
@@ -548,7 +589,7 @@ function publicOrder(order) {
     status: order.status,
     paymentMethod: order.payment_method,
     createdBy: order.created_by,
-    createdByUsername: order.created_by_username,
+    createdByUsername: order.created_by_username || null,
     createdAt: order.created_at,
     updatedAt: order.updated_at
   };
@@ -558,7 +599,7 @@ function getOrderById(id) {
   return db.prepare(`
     SELECT orders.*, users.username AS created_by_username
     FROM orders
-    INNER JOIN users ON users.id = orders.created_by
+    LEFT JOIN users ON users.id = orders.created_by
     WHERE orders.id = ?
   `).get(id);
 }
@@ -836,7 +877,7 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
 });
 
-app.patch('/api/me/password', requireAuth, requireAdmin, async (req, res, next) => {
+app.patch('/api/me/password', requireAuth, async (req, res, next) => {
   try {
     const currentPassword = typeof req.body.currentPassword === 'string'
       ? req.body.currentPassword
@@ -896,8 +937,9 @@ app.post('/api/users', requireAuth, requireAdmin, async (req, res, next) => {
     const username = cleanUsername(req.body.username);
     const password = typeof req.body.password === 'string' ? req.body.password : '';
 
-    const role = req.body.role === 'admin' ? 'admin' 
+    const role = req.body.role === 'admin' ? 'admin'
                : req.body.role === 'officials' ? 'officials'
+               : req.body.role === 'user' ? 'user'
                : 'resident_chief';
 
     if (!username || password.length < 12) {
@@ -980,6 +1022,62 @@ app.patch('/api/users/:id/status', requireAuth, requireAdmin, (req, res, next) =
   } catch (error) {
     next(error);
   }
+});
+
+app.patch('/api/users/:id/password', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+    const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
+
+    if (!id) {
+      return res.status(400).json({ error: 'Utilizador inválido.' });
+    }
+
+    if (newPassword.length < 12) {
+      return res.status(400).json({
+        error: 'A nova palavra-passe tem de ter pelo menos 12 caracteres.'
+      });
+    }
+
+    const target = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
+
+    if (!target) {
+      return res.status(404).json({ error: 'Utilizador não encontrado.' });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+
+    db.prepare(`
+      UPDATE users
+      SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(newHash, id);
+
+    logAction(req.user.id, 'reset_user_password', target.username);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/audit-logs', requireAuth, requireAdmin, (req, res) => {
+  const logs = db.prepare(`
+    SELECT audit_logs.*, users.username AS actor_username
+    FROM audit_logs
+    LEFT JOIN users ON users.id = audit_logs.actor_id
+    ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
+    LIMIT 200
+  `).all();
+
+  res.json({
+    logs: logs.map((log) => ({
+      id: log.id,
+      action: log.action,
+      actorUsername: log.actor_username || 'Sistema',
+      targetUsername: log.target_username,
+      createdAt: log.created_at
+    }))
+  });
 });
 
 app.delete('/api/users/:id', requireAuth, requireAdmin, (req, res, next) => {
@@ -1317,44 +1415,11 @@ app.get('/api/orders', requireAuth, allowOfficialsReadOrders, (req, res) => {
   const rows = db.prepare(`
     SELECT orders.*, users.username AS created_by_username
     FROM orders
-    INNER JOIN users ON users.id = orders.created_by
+    LEFT JOIN users ON users.id = orders.created_by
     ORDER BY orders.created_at DESC, orders.id DESC
   `).all();
 
   res.json({ orders: rows.map(publicOrder) });
-});
-app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const materials = db.prepare(`
-      SELECT
-        order_material_totals.material_name AS name,
-        SUM(order_material_totals.quantity) AS quantity
-      FROM order_material_totals
-      INNER JOIN orders
-        ON orders.id = order_material_totals.order_id
-      WHERE orders.status = 'pending'
-        AND orders.payment_method = 'materials'
-      GROUP BY order_material_totals.material_name
-      ORDER BY order_material_totals.material_name COLLATE NOCASE ASC
-    `).all();
-
-    const pendingOrders = db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM orders
-      WHERE status = 'pending'
-        AND payment_method = 'materials'
-    `).get().count;
-
-    res.json({
-      pendingOrders,
-      materials: materials.map((material) => ({
-        name: material.name,
-        quantity: material.quantity
-      }))
-    });
-  } catch (error) {
-    next(error);
-  }
 });
 app.get('/api/orders/:id', requireAuth, allowOfficialsReadOrders, (req, res) => {
   const id = ensureInteger(req.params.id, 1);
