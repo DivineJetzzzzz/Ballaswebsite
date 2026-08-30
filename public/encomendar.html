@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pedir encomenda · NovaCore Ballas</title>
+  <link rel="stylesheet" href="/encomendar.css">
+</head>
+<body>
+  <main class="public-shell">
+    <div class="public-card">
+      <div class="public-brand">
+        <span class="public-brand-mark">B</span>
+        <span>NovaCore Ballas</span>
+      </div>
+
+      <p class="public-eyebrow">Pedido público · sem conta necessária</p>
+      <h1>Fazer um pedido</h1>
+      <p class="public-lead">
+        Preenche os teus dados de contacto RP, escolhe os itens que precisas e envia.
+        A organização vai analisar o teu pedido e entra em contacto contigo.
+      </p>
+
+      <div id="publicFormMessage" class="public-message hidden" aria-live="polite"></div>
+
+      <form id="publicOrderForm" novalidate>
+        <div class="public-section">
+          <h2>Contacto RP</h2>
+
+          <div class="public-grid-2">
+            <label class="field">
+              Nome / Personagem
+              <input id="contactName" minlength="2" maxlength="60" placeholder="Ex.: John Doe" required>
+            </label>
+
+            <label class="field">
+              Discord ou telefone RP
+              <input id="contactInfo" minlength="3" maxlength="150" placeholder="Ex.: fulano#0001 ou 555-0100" required>
+            </label>
+          </div>
+        </div>
+
+        <div class="public-section">
+          <h2>Escolhe os itens</h2>
+          <p class="public-section-hint">Define a quantidade só nos itens que queres pedir.</p>
+
+          <label class="field">
+            Filtrar categoria
+            <select id="publicCategoryFilter"></select>
+          </label>
+
+          <div id="publicCatalogList" class="public-catalog-list">
+            A carregar catálogo...
+          </div>
+        </div>
+
+        <div class="public-section">
+          <h2>Pagamento e entrega</h2>
+
+          <div class="public-payment-choice">
+            <label class="public-payment-card">
+              <input type="radio" name="paymentPreference" value="materials" checked>
+              <span>
+                <b>Materiais</b>
+                <small>Entregas os materiais necessários.</small>
+              </span>
+            </label>
+
+            <label class="public-payment-card">
+              <input type="radio" name="paymentPreference" value="clean">
+              <span>
+                <b>Dinheiro limpo</b>
+                <small>Pagamento em dinheiro limpo.</small>
+              </span>
+            </label>
+
+            <label class="public-payment-card">
+              <input type="radio" name="paymentPreference" value="dirty">
+              <span>
+                <b>Dinheiro sujo</b>
+                <small>Pagamento em dinheiro sujo.</small>
+              </span>
+            </label>
+          </div>
+
+          <label class="field">
+            Local / prazo de entrega
+            <input id="deliveryInfo" minlength="3" maxlength="300" placeholder="Ex.: Garagem da organização, esta noite" required>
+          </label>
+        </div>
+
+        <div class="public-section">
+          <h2>Pedido especial <small>(opcional)</small></h2>
+
+          <label class="field">
+            Alguma coisa que a organização deva saber?
+            <textarea id="specialRequest" maxlength="1000" placeholder="Escreve aqui qualquer informação adicional sobre o teu pedido"></textarea>
+          </label>
+        </div>
+
+        <div id="publicOrderError" class="error" aria-live="polite"></div>
+
+        <button class="btn primary public-submit" type="submit">Enviar pedido</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="/encomendar.js"></script>
+</body>
+</html>
