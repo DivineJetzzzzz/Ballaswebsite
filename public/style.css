@@ -49,6 +49,20 @@ body::before {
     linear-gradient(120deg, transparent, rgba(142, 68, 255, 0.06));
 }
 
+body::after {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background-image: url("ballas-logo.jpg");
+  background-repeat: no-repeat;
+  background-position: center 50%;
+  background-size: min(60vw, 620px) auto;
+  opacity: 0.14;
+  mix-blend-mode: screen;
+}
+
 button,
 input,
 select,
