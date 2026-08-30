@@ -1,0 +1,210 @@
+/*
+ * base.css — tokens e estilos partilhados entre encomendar.css (página
+ * pública) e style.css (dashboard interno). Importa este ficheiro primeiro
+ * em ambos, e mantém cada um deles só com o que é específico dessa página.
+ * Isto evita que as duas folhas de estilo se desalinhem quando se muda a
+ * paleta, a tipografia ou os componentes base (inputs, botões, etc).
+ */
+
+:root {
+  --bg: #09070f;
+  --surface: rgba(21, 14, 34, 0.88);
+  --surface-solid: #171025;
+  --surface-dark: #0d0915;
+  --line: rgba(194, 150, 255, 0.24);
+  --text: #ffffff;
+  --muted: #c9bddb;
+  --accent: #8e44ff;
+  --accent-light: #c99cff;
+  --accent-dark: #4d1b8d;
+  --cyan: #d8c0ff;
+  --success: #72f1b8;
+  --danger: #ff86a2;
+  --warning: #ffd277;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(142, 68, 255, 0.27), transparent 30rem),
+    radial-gradient(circle at 92% 88%, rgba(205, 129, 255, 0.16), transparent 33rem),
+    linear-gradient(135deg, #07040d, #1e0c36 52%, #080611);
+  color: var(--text);
+  font: 15px/1.5 "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none !important;
+}
+
+.hidden {
+  display: none !important;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 10px;
+  font-size: 30px;
+  letter-spacing: -1px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  outline: 0;
+  border-radius: 11px;
+  padding: 13px 14px;
+  background: rgba(8, 5, 14, 0.85);
+  color: #ffffff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+select {
+  cursor: pointer;
+}
+
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-light);
+  box-shadow: 0 0 0 4px rgba(142, 68, 255, 0.19);
+}
+
+.error {
+  min-height: 21px;
+  margin-top: 16px;
+  color: #ff9ab0;
+  font-size: 13px;
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 11px 15px;
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.18s ease, filter 0.18s ease, background 0.18s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none !important;
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--accent-dark), var(--accent) 56%, #ab72ff);
+  box-shadow: 0 10px 23px rgba(142, 68, 255, 0.31);
+}
+
+/* Scrollbars temáticas — Chrome/Edge/Safari (WebKit) */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(194, 150, 255, 0.32);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(194, 150, 255, 0.55);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(194, 150, 255, 0.32) transparent;
+}
+
+/* Fade-in escalonável para listas que carregam via JS (catálogo, receitas,
+   tabelas). Aplica a classe .fade-in-row a cada item e define
+   --fade-index (0, 1, 2...) inline para escalonar a entrada. */
+@keyframes fade-in-row {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-row {
+  animation: fade-in-row 0.32s ease both;
+  animation-delay: calc(var(--fade-index, 0) * 35ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-row {
+    animation: none;
+  }
+}
