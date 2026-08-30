@@ -276,12 +276,12 @@ function renderUsers() {
   if (!table) return;
 
   table.innerHTML = users.length
-    ? users.map((user) => {
+    ? users.map((user, index) => {
       const self = user.id === currentUser?.id;
       const roleLabel = getRoleLabel(user.role);
 
       return `
-        <tr>
+        <tr class="fade-in-row" style="--fade-index: ${index}">
           <td class="username">${escapeHTML(user.username)}${self ? ' <small>(tu)</small>' : ''}</td>
           <td><span class="badge ${user.role}">${roleLabel}</span></td>
           <td><span class="badge ${user.active ? 'active' : 'blocked'}">${user.active ? 'Ativo' : 'Bloqueado'}</span></td>
@@ -355,6 +355,17 @@ function ingredientRow(materialId = '', quantity = 1, mode = 'create') {
       <button class="btn danger mini ${removeClass}" type="button">Remover</button>
     </div>
   `;
+}
+
+function toggleRecipeMaterialsSection(category, sectionId, hintId, editorId) {
+  const isAmmunation = category === 'Ammunation';
+
+  $(sectionId).classList.toggle('hidden', isAmmunation);
+  $(hintId).classList.toggle('hidden', !isAmmunation);
+
+  $(editorId).querySelectorAll('select, input').forEach((field) => {
+    field.required = !isAmmunation;
+  });
 }
 
 function renderMaterials() {
@@ -442,8 +453,8 @@ function renderChest() {
 
   if (table) {
     table.innerHTML = chestItems.length
-      ? chestItems.map((item) => `
-        <div class="chest-card">
+      ? chestItems.map((item, index) => `
+        <div class="chest-card fade-in-row" style="--fade-index: ${index}">
           <div class="chest-card-head">
             <span class="chest-card-name">${escapeHTML(item.name)}</span>
           </div>
@@ -658,8 +669,8 @@ function renderOrders() {
   if (!table) return;
 
   table.innerHTML = orders.length
-    ? orders.map((order) => `
-      <tr>
+    ? orders.map((order, index) => `
+      <tr class="fade-in-row" style="--fade-index: ${index}">
         <td>#${order.id}</td>
         <td>
           <strong>${escapeHTML(order.title)}</strong>
@@ -747,7 +758,7 @@ function selectedOrderRecipes() {
 
 function renderOrderBuilder() {
   const category = $('#orderCategoryFilter').value;
-  const visibleRecipes = recipes.filter((recipe) => !category || recipe.category === category);
+  const visibleRecipes = recipes.filter((recipe) => recipe.category !== 'Ammunation' && (!category || recipe.category === category));
   const list = $('#orderRecipesList');
 
   list.innerHTML = visibleRecipes.length
@@ -895,6 +906,13 @@ function openRecipeEditor(recipe) {
   $('#editIngredientsEditor').innerHTML = recipe.materials.length
     ? recipe.materials.map((material) => ingredientRow(material.id, material.quantity, 'edit')).join('')
     : ingredientRow('', 1, 'edit');
+
+  toggleRecipeMaterialsSection(
+    recipe.category,
+    '#editIngredientsSection',
+    '#editRecipeAmmunationHint',
+    '#editIngredientsEditor'
+  );
 
   $('#editRecipeDialog').showModal();
 }
@@ -1252,6 +1270,15 @@ async function loadCrafting() {
   if (!$('#recipeIngredients').children.length && isAdmin()) {
     $('#recipeIngredients').innerHTML = ingredientRow();
   }
+
+  if (isAdmin()) {
+    toggleRecipeMaterialsSection(
+      $('#recipeCategory').value,
+      '#recipeIngredientsSection',
+      '#recipeAmmunationHint',
+      '#recipeIngredients'
+    );
+  }
 }
 
 async function loadOrders() {
@@ -1393,7 +1420,11 @@ async function openOrderBuilder() {
     $('#orderForm').reset();
     $('#orderError').textContent = '';
 
-    const categories = [...new Set(recipes.map((recipe) => recipe.category))];
+    const categories = [...new Set(
+      recipes
+        .filter((recipe) => recipe.category !== 'Ammunation')
+        .map((recipe) => recipe.category)
+    )];
 
     $('#orderCategoryFilter').innerHTML = [
       '<option value="">Todas as categorias</option>',
@@ -1683,6 +1714,24 @@ $('#addRecipeIngredient').addEventListener('click', () => {
   $('#recipeIngredients').insertAdjacentHTML('beforeend', ingredientRow());
 });
 
+$('#recipeCategory').addEventListener('change', () => {
+  toggleRecipeMaterialsSection(
+    $('#recipeCategory').value,
+    '#recipeIngredientsSection',
+    '#recipeAmmunationHint',
+    '#recipeIngredients'
+  );
+});
+
+$('#editRecipeCategory').addEventListener('change', () => {
+  toggleRecipeMaterialsSection(
+    $('#editRecipeCategory').value,
+    '#editIngredientsSection',
+    '#editRecipeAmmunationHint',
+    '#editIngredientsEditor'
+  );
+});
+
 $('#recipeIngredients').addEventListener('click', (event) => {
   const button = event.target.closest('.remove-recipe-ingredient');
 
@@ -1696,18 +1745,22 @@ $('#recipeForm').addEventListener('submit', async (event) => {
 
   $('#recipeError').textContent = '';
 
-  const recipeMaterials = collectIngredients(
-    '#recipeIngredients',
-    '.recipe-ingredient-material',
-    '.recipe-ingredient-quantity'
-  );
+  const category = $('#recipeCategory').value;
+
+  const recipeMaterials = category === 'Ammunation'
+    ? []
+    : collectIngredients(
+      '#recipeIngredients',
+      '.recipe-ingredient-material',
+      '.recipe-ingredient-quantity'
+    );
 
   try {
     await request('/api/catalog', {
       method: 'POST',
       body: JSON.stringify({
         name: $('#recipeName').value,
-        category: $('#recipeCategory').value,
+        category,
         unitPrice: $('#recipePrice').value,
         materials: recipeMaterials
       })
@@ -1716,6 +1769,12 @@ $('#recipeForm').addEventListener('submit', async (event) => {
     $('#recipeForm').reset();
     $('#recipePrice').value = 0;
     $('#recipeIngredients').innerHTML = ingredientRow();
+    toggleRecipeMaterialsSection(
+      $('#recipeCategory').value,
+      '#recipeIngredientsSection',
+      '#recipeAmmunationHint',
+      '#recipeIngredients'
+    );
 
     await loadCrafting();
   } catch (error) {
@@ -1747,18 +1806,22 @@ $('#editRecipeForm').addEventListener('submit', async (event) => {
 
   $('#editRecipeError').textContent = '';
 
-  const recipeMaterials = collectIngredients(
-    '#editIngredientsEditor',
-    '.edit-ingredient-material',
-    '.edit-ingredient-quantity'
-  );
+  const editCategory = $('#editRecipeCategory').value;
+
+  const recipeMaterials = editCategory === 'Ammunation'
+    ? []
+    : collectIngredients(
+      '#editIngredientsEditor',
+      '.edit-ingredient-material',
+      '.edit-ingredient-quantity'
+    );
 
   try {
     await request(`/api/catalog/${editingRecipeId}`, {
       method: 'PUT',
       body: JSON.stringify({
         name: $('#editRecipeName').value,
-        category: $('#editRecipeCategory').value,
+        category: editCategory,
         unitPrice: $('#editRecipePrice').value,
         materials: recipeMaterials
       })
