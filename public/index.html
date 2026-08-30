@@ -119,6 +119,16 @@
           </article>
         </div>
 
+        <section class="panel hidden" id="stockAlertsPanel">
+          <div class="panel-head">
+            <div>
+              <h3>Alertas de stock <span id="stockAlertsCount" class="badge blocked">0</span></h3>
+              <p>Itens abaixo do stock mínimo definido, nos baús a que tens acesso.</p>
+            </div>
+          </div>
+          <div id="stockAlertsList" class="stock-alerts-list"></div>
+        </section>
+
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -942,6 +952,25 @@
       <div class="modal-actions">
         <button id="closeChestTransferDialog" class="btn secondary" type="button">Cancelar</button>
         <button class="btn primary" type="submit">Transferir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="minStockDialog">
+    <form id="minStockForm" class="modal" novalidate>
+      <h3 id="minStockTitle">Stock mínimo</h3>
+      <p id="minStockText"></p>
+
+      <label class="field">
+        Stock mínimo
+        <input id="minStockValue" type="number" min="0" step="1" required>
+      </label>
+
+      <div id="minStockError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeMinStockDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Guardar</button>
       </div>
     </form>
   </dialog>
