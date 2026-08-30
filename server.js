@@ -1984,6 +1984,31 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     }))
   });
 });
+
+app.get('/api/orders/pending-money-summary', requireAuth, requireAdmin, (req, res) => {
+  const pendingOrders = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM orders
+    WHERE status = 'pending'
+      AND payment_method IN ('clean', 'dirty')
+  `).get().count;
+
+  const totals = db.prepare(`
+    SELECT
+      SUM(CASE WHEN orders.payment_method = 'clean' THEN order_recipe_items.clean_price * order_recipe_items.quantity ELSE 0 END) AS clean_total,
+      SUM(CASE WHEN orders.payment_method = 'dirty' THEN order_recipe_items.dirty_price * order_recipe_items.quantity ELSE 0 END) AS dirty_total
+    FROM order_recipe_items
+    INNER JOIN orders ON orders.id = order_recipe_items.order_id
+    WHERE orders.status = 'pending'
+      AND orders.payment_method IN ('clean', 'dirty')
+  `).get();
+
+  res.json({
+    pendingOrders,
+    totalClean: totals.clean_total || 0,
+    totalDirty: totals.dirty_total || 0
+  });
+});
 app.get('/api/orders', requireAuth, allowOfficialsReadOrders, (req, res) => {
   const rows = db.prepare(`
     SELECT orders.*, users.username AS created_by_username
