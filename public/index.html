@@ -55,6 +55,7 @@
         <button class="nav admin-or-officials" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
         <button class="nav admin-only" data-page="ordersChest" type="button">▣ <span>Baú Encomendas</span></button>
         <button class="nav orders-viewer" data-page="orders" type="button">☷ <span>Encomendas</span></button>
+        <button class="nav admin-only" data-page="publicOrders" type="button">✉ <span>Pedidos Públicos</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
         <button class="nav admin-only" data-page="auditLogs" type="button">🗒 <span>Registo</span></button>
@@ -334,6 +335,45 @@
                 </tr>
               </thead>
               <tbody id="ordersTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="publicOrdersPage" class="hidden admin-only">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Pedidos Públicos</h3>
+              <p>Pedidos submetidos por qualquer pessoa em <code>/encomendar</code>, sem necessidade de conta. Analisa, aceita e converte, rejeita ou arquiva.</p>
+            </div>
+            <div class="actions">
+              <select id="publicOrdersFilter">
+                <option value="pending">Pendentes</option>
+                <option value="all">Todos os estados</option>
+                <option value="accepted">Aceites / Convertidos</option>
+                <option value="rejected">Rejeitados</option>
+                <option value="archived">Arquivados</option>
+                <option value="spam">Spam</option>
+              </select>
+              <button id="refreshPublicOrders" class="btn secondary" type="button">Atualizar</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Contacto RP</th>
+                  <th>Itens</th>
+                  <th>Pagamento</th>
+                  <th>Estado</th>
+                  <th>Recebido em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="publicOrdersTable"></tbody>
             </table>
           </div>
         </section>
@@ -949,6 +989,90 @@
 
       <div class="modal-actions">
         <button class="btn ammunation-btn" type="submit">Criar encomenda</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="publicOrderDetailDialog" class="order-detail-modal">
+    <section class="modal order-detail-modal">
+      <div class="detail-head">
+        <div>
+          <h3 id="publicOrderDetailTitle">Pedido público</h3>
+          <p id="publicOrderDetailMeta"></p>
+        </div>
+        <button id="closePublicOrderDetailDialog" class="btn secondary" type="button">Fechar</button>
+      </div>
+
+      <div id="publicOrderDetailContent"></div>
+
+      <form id="publicOrderNotesForm" novalidate>
+        <label class="field">
+          Notas internas
+          <textarea id="publicOrderNotes" maxlength="1000" placeholder="Notas visíveis apenas para a administração"></textarea>
+        </label>
+
+        <div id="publicOrderNotesError" class="error" aria-live="polite"></div>
+
+        <div class="modal-actions">
+          <button class="btn secondary" type="submit">Guardar notas</button>
+        </div>
+      </form>
+
+      <div id="publicOrderActionError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions" id="publicOrderDetailActions"></div>
+    </section>
+  </dialog>
+
+  <dialog id="convertPublicOrderDialog" class="order-modal">
+    <form id="convertPublicOrderForm" class="modal order-modal" novalidate>
+      <div class="detail-head">
+        <div>
+          <h3>Converter em encomenda interna</h3>
+          <p>Confirma o título e o método de pagamento. Preços e materiais vêm sempre do catálogo atual.</p>
+        </div>
+        <button id="closeConvertPublicOrderDialog" class="btn secondary" type="button">Cancelar</button>
+      </div>
+
+      <label class="field">
+        Título da encomenda
+        <input id="convertOrderTitle" minlength="3" maxlength="100" required>
+      </label>
+
+      <div class="payment-choice">
+        <strong>Método de pagamento</strong>
+
+        <label class="payment-card">
+          <input type="radio" name="convertPaymentMethod" value="materials" checked>
+          <span>
+            <b>Materiais</b>
+            <small>Calcula os materiais necessários, como uma encomenda de crafting.</small>
+          </span>
+        </label>
+
+        <label class="payment-card clean-payment">
+          <input type="radio" name="convertPaymentMethod" value="clean">
+          <span>
+            <b>Dinheiro limpo</b>
+            <small>Usa os preços de dinheiro limpo dos itens.</small>
+          </span>
+        </label>
+
+        <label class="payment-card dirty-payment">
+          <input type="radio" name="convertPaymentMethod" value="dirty">
+          <span>
+            <b>Dinheiro sujo</b>
+            <small>Usa os preços de dinheiro sujo dos itens.</small>
+          </span>
+        </label>
+      </div>
+
+      <div id="convertPublicOrderItems" class="detail-block" style="margin-top: 18px;"></div>
+
+      <div id="convertPublicOrderError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button class="btn primary" type="submit">Converter e criar encomenda</button>
       </div>
     </form>
   </dialog>
