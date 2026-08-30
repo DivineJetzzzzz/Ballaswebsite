@@ -47,9 +47,10 @@
 
       <nav aria-label="Navegação principal">
         <button class="nav active" data-page="dashboard" type="button">⌂ <span>Visão geral</span></button>
-        <button class="nav" data-page="chest" type="button">▣ <span>Baú</span></button>
-        <button class="nav" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
+        <button class="nav admin-only" data-page="chest" type="button">▣ <span>Baú 113</span></button>
+        <button class="nav admin-or-resident-chief" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
         <button class="nav admin-or-officials" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
+        <button class="nav admin-only" data-page="ordersChest" type="button">▣ <span>Baú Encomendas</span></button>
         <button class="nav admin-or-officials" data-page="orders" type="button">☷ <span>Encomendas</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
@@ -102,7 +103,7 @@
         <section class="panel">
           <div class="panel-head">
             <div>
-              <h3>Baú da organização</h3>
+              <h3>Baú 113</h3>
               <p>Controla o stock, entradas e saídas da organização.</p>
             </div>
             <button id="openChestCreateDialog" class="btn primary admin-only" type="button">+ Novo item</button>
@@ -148,7 +149,7 @@
         </section>
       </section>
 
-      <section id="residentsChestPage" class="hidden">
+      <section id="residentsChestPage" class="hidden admin-or-resident-chief">
         <section class="panel">
           <div class="panel-head">
             <div>
@@ -243,6 +244,56 @@
                 </tr>
               </thead>
               <tbody id="officialsChestLogsTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="ordersChestPage" class="hidden admin-only">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Baú de Encomendas</h3>
+              <p>Controla o stock, entradas e saídas do baú de encomendas. Acesso exclusivo a administradores.</p>
+            </div>
+            <button id="openOrdersChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Atualizado</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="ordersChestTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Últimos movimentos</h3>
+              <p>Histórico das últimas 30 entradas e saídas.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Item</th>
+                  <th>Quantidade</th>
+                  <th>Por</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody id="ordersChestLogsTable"></tbody>
             </table>
           </div>
         </section>
@@ -525,7 +576,7 @@
 
   <dialog id="chestCreateDialog">
     <form id="chestCreateForm" class="modal" novalidate>
-      <h3>Novo item no Baú</h3>
+      <h3>Novo item no Baú 113</h3>
       <p>O item será criado com quantidade zero.</p>
 
       <label class="field">
@@ -544,7 +595,7 @@
 
   <dialog id="chestActionDialog">
     <form id="chestActionForm" class="modal" novalidate>
-      <h3 id="chestActionTitle">Movimento de Baú</h3>
+      <h3 id="chestActionTitle">Movimento de Baú 113</h3>
       <p id="chestActionText"></p>
 
       <label class="field">
@@ -632,6 +683,44 @@
 
       <div class="modal-actions">
         <button id="closeOfficialsChestActionDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ordersChestCreateDialog">
+    <form id="ordersChestCreateForm" class="modal" novalidate>
+      <h3>Novo item no Baú de Encomendas</h3>
+      <p>O item será criado com quantidade zero.</p>
+
+      <label class="field">
+        Nome do item
+        <input id="ordersChestItemName" minlength="2" maxlength="80" required>
+      </label>
+
+      <div id="ordersChestCreateError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeOrdersChestCreateDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Criar item</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ordersChestActionDialog">
+    <form id="ordersChestActionForm" class="modal" novalidate>
+      <h3 id="ordersChestActionTitle">Movimento de Baú de Encomendas</h3>
+      <p id="ordersChestActionText"></p>
+
+      <label class="field">
+        Quantidade
+        <input id="ordersChestActionQuantity" type="number" min="1" step="1" required>
+      </label>
+
+      <div id="ordersChestActionError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeOrdersChestActionDialog" class="btn secondary" type="button">Cancelar</button>
         <button class="btn primary" type="submit">Confirmar</button>
       </div>
     </form>
