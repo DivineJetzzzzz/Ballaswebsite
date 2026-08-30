@@ -26,6 +26,8 @@ let officialsChestTarget = null;
 let officialsChestAction = null;
 let ordersChestTarget = null;
 let ordersChestAction = null;
+let resetPasswordTarget = null;
+let auditLogs = [];
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
@@ -125,13 +127,14 @@ function isAdminOrResidentChief() {
 }
 
 function canViewOrders() {
-  return currentUser?.role === 'admin' || currentUser?.role === 'officials' || currentUser?.role === 'resident_chief';
+  return ['admin', 'officials', 'resident_chief', 'user'].includes(currentUser?.role);
 }
 
 function getRoleLabel(role = currentUser?.role) {
   if (role === 'admin') return 'Administrador';
   if (role === 'officials') return 'Oficial';
   if (role === 'resident_chief') return 'Chefe de Moradores';
+  if (role === 'user') return 'Utilizador';
   return 'Utilizador';
 }
 
@@ -162,12 +165,13 @@ function showPage(name) {
     ordersChest: ['Baú Encomendas', 'Stock do baú de encomendas. Acesso exclusivo a administradores.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
-    users: ['Utilizadores', 'Gestão de acessos e permissões.']
+    users: ['Utilizadores', 'Gestão de acessos e permissões.'],
+    auditLogs: ['Registo de atividade', 'Histórico de ações realizadas no sistema.']
   };
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'recipes', 'users'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'recipes', 'users', 'auditLogs'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -183,6 +187,33 @@ function renderStats() {
   $('#totalUsers').textContent = users.length;
   $('#activeUsers').textContent = users.filter((user) => user.active).length;
   $('#adminUsers').textContent = users.filter((user) => user.role === 'admin').length;
+}
+
+function renderDashboard() {
+  const titleElement = $('#dashboardWelcomeTitle');
+  const messageElement = $('#dashboardMessage');
+
+  if (titleElement && currentUser) {
+    titleElement.textContent = `Olá, ${currentUser.username}`;
+  }
+
+  if (messageElement && currentUser) {
+    const messages = {
+      admin: 'Tens acesso total: gere utilizadores, receitas, baús e encomendas no menu ao lado.',
+      officials: 'Consulta e acompanha as encomendas e o stock do Baú de Oficiais no menu ao lado.',
+      resident_chief: 'Consulta as encomendas e gere o Baú de Moradores no menu ao lado.',
+      user: 'A tua função é Utilizador. Consulta as encomendas disponíveis no menu ao lado.'
+    };
+
+    messageElement.textContent = messages[currentUser.role]
+      || 'Usa o menu para gerir os módulos disponíveis na tua função.';
+  }
+
+  const pendingCount = orders.filter((order) => order.status === 'pending').length;
+  const myCount = orders.filter((order) => order.createdBy === currentUser?.id).length;
+
+  if ($('#pendingOrdersCount')) $('#pendingOrdersCount').textContent = pendingCount;
+  if ($('#myOrdersCount')) $('#myOrdersCount').textContent = myCount;
 }
 
 function renderUsers() {
@@ -211,6 +242,9 @@ function renderUsers() {
                   data-user-active="${user.active ? 'false' : 'true'}"
                 >
                   ${user.active ? 'Bloquear' : 'Reativar'}
+                </button>
+                <button class="btn secondary mini" type="button" data-user-reset-password="${user.id}" data-user-reset-username="${escapeHTML(user.username)}">
+                  Repor password
                 </button>
                 <button class="btn danger mini" type="button" data-user-delete="${user.id}">
                   Apagar
@@ -553,7 +587,7 @@ function renderOrders() {
           <strong>${escapeHTML(order.title)}</strong>
           ${order.description ? `<span class="order-description">${escapeHTML(order.description)}</span>` : ''}
         </td>
-        <td>${escapeHTML(order.createdByUsername)}</td>
+        <td>${escapeHTML(order.createdByUsername || 'Utilizador removido')}</td>
         <td>${paymentLabel(order.paymentMethod)}</td>
         <td><span class="badge ${escapeHTML(order.status)}">${statusLabel(order.status)}</span></td>
         <td>${formatDate(order.createdAt)}</td>
@@ -827,7 +861,7 @@ async function showOrderDetail(id) {
     $('#detailTitle').textContent = `Encomenda #${order.id} — ${order.title}`;
 
     $('#detailMeta').innerHTML = `
-      Criada por <strong>${escapeHTML(order.createdByUsername)}</strong> em ${formatDate(order.createdAt)} ·
+      Criada por <strong>${escapeHTML(order.createdByUsername || 'Utilizador removido')}</strong> em ${formatDate(order.createdAt)} ·
       ${paymentLabel(order.paymentMethod)} · ${statusLabel(order.status)}
       ${order.description ? `<br>Nota: ${escapeHTML(order.description)}` : ''}
     `;
@@ -906,15 +940,17 @@ async function loadCrafting() {
 }
 
 async function loadOrders() {
-  if (!isAdminOrOfficials()) {
+  if (!canViewOrders()) {
     orders = [];
     renderOrders();
+    renderDashboard();
     return;
   }
 
   const data = await request('/api/orders');
   orders = data.orders;
   renderOrders();
+  renderDashboard();
   await loadPendingMaterialsSummary();
 }
 
@@ -974,6 +1010,35 @@ async function loadOrdersChest() {
   renderOrdersChest();
 }
 
+async function loadAuditLogs() {
+  if (!isAdmin()) {
+    auditLogs = [];
+    renderAuditLogs();
+    return;
+  }
+
+  const data = await request('/api/audit-logs');
+  auditLogs = data.logs;
+  renderAuditLogs();
+}
+
+function renderAuditLogs() {
+  const table = $('#auditLogsTable');
+
+  if (!table) return;
+
+  table.innerHTML = auditLogs.length
+    ? auditLogs.map((log) => `
+      <tr>
+        <td>${formatDate(log.createdAt)}</td>
+        <td>${escapeHTML(log.actorUsername)}</td>
+        <td>${escapeHTML(log.action)}</td>
+        <td>${escapeHTML(log.targetUsername || '—')}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="4">Ainda não existem registos de atividade.</td></tr>';
+}
+
 async function loadAll() {
   await Promise.all([
     loadUsers(),
@@ -982,7 +1047,8 @@ async function loadAll() {
     loadChest(),
     loadResidentsChest(),
     loadOfficials(),
-    loadOrdersChest()
+    loadOrdersChest(),
+    loadAuditLogs()
   ]);
 }
 
@@ -1168,7 +1234,7 @@ $('#passwordForm').addEventListener('submit', async (event) => {
   errorElement.textContent = '';
 
   if (newPassword !== confirmPassword) {
-    errorElement.textContent = 'A confirmaÃ§Ã£o nÃ£o corresponde Ã  nova palavra-passe.';
+    errorElement.textContent = 'A confirmação não corresponde à nova palavra-passe.';
     return;
   }
 
@@ -1189,6 +1255,45 @@ $('#passwordForm').addEventListener('submit', async (event) => {
     errorElement.textContent = error.message;
   }
 });
+$('#closeResetPasswordDialog').addEventListener('click', () => {
+  $('#resetPasswordDialog').close();
+});
+
+$('#resetPasswordForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const errorElement = $('#resetPasswordError');
+  const newPassword = $('#resetNewPassword').value;
+  const confirmPassword = $('#resetConfirmPassword').value;
+
+  errorElement.textContent = '';
+
+  if (!resetPasswordTarget) return;
+
+  if (newPassword !== confirmPassword) {
+    errorElement.textContent = 'A confirmação não corresponde à nova palavra-passe.';
+    return;
+  }
+
+  if (newPassword.length < 12) {
+    errorElement.textContent = 'A nova palavra-passe tem de ter pelo menos 12 caracteres.';
+    return;
+  }
+
+  try {
+    await request(`/api/users/${resetPasswordTarget.id}/password`, {
+      method: 'PATCH',
+      body: JSON.stringify({ newPassword })
+    });
+
+    $('#resetPasswordDialog').close();
+    alert(`A palavra-passe de ${resetPasswordTarget.username} foi reposta com sucesso.`);
+    resetPasswordTarget = null;
+  } catch (error) {
+    errorElement.textContent = error.message;
+  }
+});
+
 $('#openUserDialog').addEventListener('click', () => {
   $('#userForm').reset();
   $('#userError').textContent = '';
@@ -1661,6 +1766,7 @@ $('#ammunationForm').addEventListener('submit', async (event) => {
 
 document.addEventListener('click', async (event) => {
   const userStatus = event.target.closest('[data-user-status]');
+  const userResetPassword = event.target.closest('[data-user-reset-password]');
   const userDelete = event.target.closest('[data-user-delete]');
   const materialStatus = event.target.closest('[data-material-status]');
   const recipeEdit = event.target.closest('[data-recipe-edit]');
@@ -1681,6 +1787,19 @@ document.addEventListener('click', async (event) => {
       });
 
       await loadUsers();
+      return;
+    }
+
+    if (userResetPassword) {
+      resetPasswordTarget = {
+        id: userResetPassword.dataset.userResetPassword,
+        username: userResetPassword.dataset.userResetUsername
+      };
+
+      $('#resetPasswordForm').reset();
+      $('#resetPasswordError').textContent = '';
+      $('#resetPasswordUsername').textContent = resetPasswordTarget.username;
+      $('#resetPasswordDialog').showModal();
       return;
     }
 
