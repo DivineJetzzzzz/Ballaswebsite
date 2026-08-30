@@ -27,6 +27,8 @@ let officialsChestAction = null;
 let ordersChestTarget = null;
 let ordersChestAction = null;
 let chestTransferTarget = null;
+let minStockTarget = null;
+let stockAlerts = [];
 let resetPasswordTarget = null;
 let auditLogs = [];
 let publicOrders = [];
@@ -144,10 +146,10 @@ function canViewOrders() {
 // Espelha a configuração de baús do servidor, para construir o diálogo de
 // transferência e decidir para que baús o utilizador tem permissões.
 const CHEST_CONFIG = {
-  chest: { label: 'Baú 113', canAccess: () => isAdmin() },
-  residents: { label: 'Baú de Moradores', canAccess: () => isAdminOrResidentChief() },
-  officials: { label: 'Baú de Oficiais', canAccess: () => isAdminOrOfficials() },
-  orders: { label: 'Baú de Encomendas', canAccess: () => isAdmin() }
+  chest: { label: 'Baú 113', apiPrefix: '/api/chest', canAccess: () => isAdmin() },
+  residents: { label: 'Baú de Moradores', apiPrefix: '/api/residents-chest', canAccess: () => isAdminOrResidentChief() },
+  officials: { label: 'Baú de Oficiais', apiPrefix: '/api/officials-chest', canAccess: () => isAdminOrOfficials() },
+  orders: { label: 'Baú de Encomendas', apiPrefix: '/api/orders-chest', canAccess: () => isAdmin() }
 };
 
 function getChestItemsByKey(chestKey) {
@@ -455,17 +457,20 @@ function renderChest() {
   if (table) {
     table.innerHTML = chestItems.length
       ? chestItems.map((item, index) => `
-        <div class="chest-card fade-in-row" style="--fade-index: ${index}">
+        <div class="chest-card fade-in-row ${item.lowStock ? 'chest-card-low-stock' : ''}" style="--fade-index: ${index}">
           <div class="chest-card-head">
             <span class="chest-card-name">${escapeHTML(item.name)}</span>
+            ${item.lowStock ? '<span class="chest-alert-badge">⚠ Stock baixo</span>' : ''}
           </div>
           <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-minstock">Stock mínimo: ${item.minStock}</span>
           <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
           ${isAdmin() ? `
             <div class="chest-card-actions admin-only">
               <button class="btn secondary mini" type="button" data-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-chest-remove="${item.id}">− Saída</button>
               <button class="btn secondary mini" type="button" data-chest-transfer="${item.id}">⇄ Transferir</button>
+              <button class="btn secondary mini" type="button" data-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn danger mini" type="button" data-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -510,17 +515,20 @@ function renderResidentsChest() {
 
     table.innerHTML = residentsChestItems.length
       ? residentsChestItems.map((item) => `
-        <div class="chest-card">
+        <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           <div class="chest-card-head">
             <span class="chest-card-name">${escapeHTML(item.name)}</span>
+            ${item.lowStock ? '<span class="chest-alert-badge">⚠ Stock baixo</span>' : ''}
           </div>
           <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-minstock">Stock mínimo: ${item.minStock}</span>
           <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
           ${canModifyResidentsChest ? `
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
               <button class="btn secondary mini" type="button" data-residents-chest-transfer="${item.id}">⇄ Transferir</button>
+              <button class="btn secondary mini" type="button" data-residents-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -565,17 +573,20 @@ function renderOfficials() {
 
     table.innerHTML = officialsChestItems.length
       ? officialsChestItems.map((item) => `
-        <div class="chest-card">
+        <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           <div class="chest-card-head">
             <span class="chest-card-name">${escapeHTML(item.name)}</span>
+            ${item.lowStock ? '<span class="chest-alert-badge">⚠ Stock baixo</span>' : ''}
           </div>
           <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-minstock">Stock mínimo: ${item.minStock}</span>
           <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
           ${canModifyOfficialsChest ? `
             <div class="chest-card-actions admin-or-officials">
               <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
               <button class="btn secondary mini" type="button" data-officials-chest-transfer="${item.id}">⇄ Transferir</button>
+              <button class="btn secondary mini" type="button" data-officials-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn danger mini" type="button" data-officials-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -618,17 +629,20 @@ function renderOrdersChest() {
   if (table) {
     table.innerHTML = ordersChestItems.length
       ? ordersChestItems.map((item) => `
-        <div class="chest-card">
+        <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           <div class="chest-card-head">
             <span class="chest-card-name">${escapeHTML(item.name)}</span>
+            ${item.lowStock ? '<span class="chest-alert-badge">⚠ Stock baixo</span>' : ''}
           </div>
           <span class="chest-card-quantity">${item.quantity}</span>
+          <span class="chest-card-minstock">Stock mínimo: ${item.minStock}</span>
           <span class="chest-card-updated">Atualizado: ${formatDate(item.updatedAt)}</span>
           ${isAdmin() ? `
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
               <button class="btn secondary mini" type="button" data-orders-chest-transfer="${item.id}">⇄ Transferir</button>
+              <button class="btn secondary mini" type="button" data-orders-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn danger mini" type="button" data-orders-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -1070,6 +1084,21 @@ function openChestTransfer(chestKey, id) {
   $('#chestTransferDialog').showModal();
 }
 
+function openMinStockDialog(chestKey, id) {
+  const config = CHEST_CONFIG[chestKey];
+  const item = getChestItemsByKey(chestKey).find((entry) => entry.id === id);
+
+  if (!config || !item) return;
+
+  minStockTarget = { chestKey, item };
+
+  $('#minStockTitle').textContent = `Stock mínimo de ${item.name}`;
+  $('#minStockText').textContent = `${config.label} · Quantidade atual: ${item.quantity}.`;
+  $('#minStockValue').value = item.minStock ?? 10000;
+  $('#minStockError').textContent = '';
+  $('#minStockDialog').showModal();
+}
+
 async function showOrderDetail(id) {
   try {
     const [{ order }, movementsData] = await Promise.all([
@@ -1357,6 +1386,7 @@ async function loadChest() {
   chestItems = data.items;
   chestLogs = data.logs;
   renderChest();
+  await loadStockAlerts();
 }
 
 async function loadResidentsChest() {
@@ -1371,6 +1401,7 @@ async function loadResidentsChest() {
   residentsChestItems = data.items;
   residentsChestLogs = data.logs;
   renderResidentsChest();
+  await loadStockAlerts();
 }
 
 async function loadOfficials() {
@@ -1385,6 +1416,7 @@ async function loadOfficials() {
   officialsChestItems = data.items;
   officialsChestLogs = data.logs;
   renderOfficials();
+  await loadStockAlerts();
 }
 
 async function loadOrdersChest() {
@@ -1399,6 +1431,43 @@ async function loadOrdersChest() {
   ordersChestItems = data.items;
   ordersChestLogs = data.logs;
   renderOrdersChest();
+  await loadStockAlerts();
+}
+
+async function loadStockAlerts() {
+  try {
+    const data = await request('/api/stock-alerts');
+    stockAlerts = data.alerts;
+  } catch {
+    stockAlerts = [];
+  }
+
+  renderStockAlerts();
+}
+
+function renderStockAlerts() {
+  const panel = $('#stockAlertsPanel');
+  const list = $('#stockAlertsList');
+  const count = $('#stockAlertsCount');
+
+  if (!panel || !list) return;
+
+  panel.classList.toggle('hidden', stockAlerts.length === 0);
+
+  if (count) count.textContent = stockAlerts.length;
+
+  list.innerHTML = stockAlerts.map((alert) => `
+    <div class="stock-alert-row">
+      <div>
+        <strong>${escapeHTML(alert.name)}</strong>
+        <small>${escapeHTML(alert.chestLabel)}</small>
+      </div>
+      <div class="stock-alert-numbers">
+        <span class="stock-alert-quantity">${alert.quantity}</span>
+        <small>mín. ${alert.minStock}</small>
+      </div>
+    </div>
+  `).join('');
 }
 
 async function loadAuditLogs() {
@@ -2139,6 +2208,35 @@ $('#chestTransferForm').addEventListener('submit', async (event) => {
   }
 });
 
+$('#closeMinStockDialog').addEventListener('click', () => {
+  $('#minStockDialog').close();
+});
+
+$('#minStockForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!minStockTarget) return;
+
+  $('#minStockError').textContent = '';
+
+  const config = CHEST_CONFIG[minStockTarget.chestKey];
+
+  try {
+    await request(`${config.apiPrefix}/${minStockTarget.item.id}/min-stock`, {
+      method: 'PATCH',
+      body: JSON.stringify({ minStock: $('#minStockValue').value })
+    });
+
+    $('#minStockDialog').close();
+    const chestKey = minStockTarget.chestKey;
+    minStockTarget = null;
+
+    await getChestLoaderByKey(chestKey)();
+  } catch (error) {
+    $('#minStockError').textContent = error.message;
+  }
+});
+
 $('#openOrderDialog').addEventListener('click', openOrderBuilder);
 
 $('#closeOrderDialog').addEventListener('click', () => {
@@ -2407,6 +2505,7 @@ document.addEventListener('click', async (event) => {
   const chestRemove = event.target.closest('[data-chest-remove]');
   const chestDelete = event.target.closest('[data-chest-delete]');
   const chestTransfer = event.target.closest('[data-chest-transfer]');
+  const chestMinStock = event.target.closest('[data-chest-min-stock]');
   const orderView = event.target.closest('[data-order-view]');
   const orderDelete = event.target.closest('[data-order-delete]');
 
@@ -2545,10 +2644,16 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (chestMinStock) {
+      openMinStockDialog('chest', Number(chestMinStock.dataset.chestMinStock));
+      return;
+    }
+
     const residentsChestAdd = event.target.closest('[data-residents-chest-add]');
     const residentsChestRemove = event.target.closest('[data-residents-chest-remove]');
     const residentsChestDelete = event.target.closest('[data-residents-chest-delete]');
     const residentsChestTransfer = event.target.closest('[data-residents-chest-transfer]');
+    const residentsChestMinStock = event.target.closest('[data-residents-chest-min-stock]');
 
     if (residentsChestAdd) {
       openResidentsMovement(Number(residentsChestAdd.dataset.residentsChestAdd), 'add');
@@ -2575,10 +2680,16 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (residentsChestMinStock) {
+      openMinStockDialog('residents', Number(residentsChestMinStock.dataset.residentsChestMinStock));
+      return;
+    }
+
     const officialsChestAdd = event.target.closest('[data-officials-chest-add]');
     const officialsChestRemove = event.target.closest('[data-officials-chest-remove]');
     const officialsChestDelete = event.target.closest('[data-officials-chest-delete]');
     const officialsChestTransfer = event.target.closest('[data-officials-chest-transfer]');
+    const officialsChestMinStock = event.target.closest('[data-officials-chest-min-stock]');
 
     if (officialsChestAdd) {
       openOfficialsMovement(Number(officialsChestAdd.dataset.officialsChestAdd), 'add');
@@ -2605,10 +2716,16 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (officialsChestMinStock) {
+      openMinStockDialog('officials', Number(officialsChestMinStock.dataset.officialsChestMinStock));
+      return;
+    }
+
     const ordersChestAdd = event.target.closest('[data-orders-chest-add]');
     const ordersChestRemove = event.target.closest('[data-orders-chest-remove]');
     const ordersChestDelete = event.target.closest('[data-orders-chest-delete]');
     const ordersChestTransfer = event.target.closest('[data-orders-chest-transfer]');
+    const ordersChestMinStock = event.target.closest('[data-orders-chest-min-stock]');
 
     if (ordersChestAdd) {
       openOrdersChestMovement(Number(ordersChestAdd.dataset.ordersChestAdd), 'add');
@@ -2632,6 +2749,11 @@ document.addEventListener('click', async (event) => {
 
     if (ordersChestTransfer) {
       openChestTransfer('orders', Number(ordersChestTransfer.dataset.ordersChestTransfer));
+      return;
+    }
+
+    if (ordersChestMinStock) {
+      openMinStockDialog('orders', Number(ordersChestMinStock.dataset.ordersChestMinStock));
       return;
     }
 
