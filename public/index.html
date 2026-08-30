@@ -39,10 +39,13 @@
   </section>
 
   <section id="appView" class="app hidden">
+    <div id="mobileMenuOverlay" class="mobile-menu-overlay"></div>
+
     <aside>
       <div class="brand">
         <span class="brand-mark">B</span>
         <span>NovaCore Ballas</span>
+        <button id="closeMobileMenu" class="mobile-menu-close" type="button" aria-label="Fechar menu">✕</button>
       </div>
 
       <nav aria-label="Navegação principal">
@@ -65,9 +68,12 @@
 
     <main>
       <header>
-        <div>
-          <h2 id="pageTitle">Visão geral</h2>
-          <p id="pageSubtitle">Resumo do teu painel privado.</p>
+        <div class="header-title">
+          <button id="mobileMenuToggle" class="mobile-menu-toggle" type="button" aria-label="Abrir menu">☰</button>
+          <div>
+            <h2 id="pageTitle">Visão geral</h2>
+            <p id="pageSubtitle">Resumo do teu painel privado.</p>
+          </div>
         </div>
         <time id="currentDate"></time>
       </header>
