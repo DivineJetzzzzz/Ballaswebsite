@@ -156,6 +156,12 @@ textarea:focus {
   box-shadow: 0 10px 23px rgba(142, 68, 255, 0.31);
 }
 
+.form-hint {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* Scrollbars temáticas — Chrome/Edge/Safari (WebKit) */
 ::-webkit-scrollbar {
   width: 9px;
