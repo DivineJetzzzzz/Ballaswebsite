@@ -2663,11 +2663,6 @@ async function loadPendingMaterialsSummary() {
         ${data.pendingOrders} encomenda${data.pendingOrders === 1 ? '' : 's'} pendente${data.pendingOrders === 1 ? '' : 's'}
       </span>
 
-      <div class="calculator-totals">
-        <div class="calculator-total payment-total-clean">Valor limpo: <strong>${formatMoney(data.totalClean)}</strong></div>
-        <div class="calculator-total payment-total-dirty">Valor sujo: <strong>${formatMoney(data.totalDirty)}</strong></div>
-      </div>
-
       ${data.materials.length ? `
         <div class="pending-materials-list">
           ${data.materials.map((material) => `
