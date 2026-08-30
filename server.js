@@ -1976,20 +1976,8 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
       AND payment_method = 'materials'
   `).get().count;
 
-  const totals = db.prepare(`
-    SELECT
-      SUM(order_recipe_items.clean_price * order_recipe_items.quantity) AS clean_total,
-      SUM(order_recipe_items.dirty_price * order_recipe_items.quantity) AS dirty_total
-    FROM order_recipe_items
-    INNER JOIN orders ON orders.id = order_recipe_items.order_id
-    WHERE orders.status = 'pending'
-      AND orders.payment_method = 'materials'
-  `).get();
-
   res.json({
     pendingOrders,
-    totalClean: totals.clean_total || 0,
-    totalDirty: totals.dirty_total || 0,
     materials: materials.map((material) => ({
       name: material.name,
       quantity: material.quantity
