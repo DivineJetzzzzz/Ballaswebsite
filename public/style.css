@@ -921,7 +921,10 @@ dialog.order-modal {
   .actions .btn,
   .actions select {
     width: 100%;
-  }.pending-materials-summary {
+  }
+}
+
+.pending-materials-summary {
   display: grid;
   gap: 14px;
 }
@@ -970,4 +973,67 @@ dialog.order-modal {
   color: var(--success);
   font-size: 17px;
 }
+
+.chest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.chest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(8, 5, 14, 0.7);
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.chest-card:hover {
+  border-color: rgba(213, 184, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+.chest-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chest-card-name {
+  font-weight: 800;
+  word-break: break-word;
+}
+
+.chest-card-quantity {
+  font-size: 26px;
+  font-weight: 850;
+  letter-spacing: -0.5px;
+}
+
+.chest-card-updated {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chest-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.chest-card-actions .btn {
+  flex: 1;
+}
+
+.chest-grid-empty {
+  padding: 22px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
 }
