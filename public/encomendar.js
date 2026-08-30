@@ -49,8 +49,8 @@ function renderCatalog() {
     return;
   }
 
-  list.innerHTML = visibleItems.map((item) => `
-    <div class="public-catalog-row">
+  list.innerHTML = visibleItems.map((item, index) => `
+    <div class="public-catalog-row fade-in-row" style="--fade-index: ${index}">
       <div>
         <strong>${escapeHTML(item.name)}</strong>
         <small>${escapeHTML(item.category)} · Preço de referência: ${formatMoney(item.referencePrice)}</small>
