@@ -217,6 +217,7 @@ function showPage(name) {
     officialsChest: ['Baú Oficiais', 'Stock do baú dos oficiais.'],
     ordersChest: ['Baú Encomendas', 'Stock do baú de encomendas. Acesso exclusivo a administradores.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
+    ammunationOrders: ['Encomendas Ammunation', 'Encomendas pagas a dinheiro, limpo ou sujo.'],
     publicOrders: ['Pedidos Públicos', 'Pedidos recebidos em /encomendar, sem necessidade de conta.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
     users: ['Utilizadores', 'Gestão de acessos e permissões.'],
@@ -225,7 +226,7 @@ function showPage(name) {
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'publicOrders', 'recipes', 'users', 'auditLogs'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'ammunationOrders', 'publicOrders', 'recipes', 'users', 'auditLogs'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -663,42 +664,64 @@ function renderOrdersChest() {
   }
 }
 
+function isMoneyOrder(order) {
+  return order.paymentMethod === 'clean' || order.paymentMethod === 'dirty';
+}
+
+function renderOrderRow(order, index) {
+  return `
+    <tr class="fade-in-row" style="--fade-index: ${index}">
+      <td>#${order.id}</td>
+      <td>
+        <strong>${escapeHTML(order.title)}</strong>
+        ${order.description ? `<span class="order-description">${escapeHTML(order.description)}</span>` : ''}
+      </td>
+      <td>${escapeHTML(order.createdByUsername || 'Utilizador removido')}</td>
+      <td>${paymentLabel(order.paymentMethod)}</td>
+      <td><span class="badge ${escapeHTML(order.status)}">${statusLabel(order.status)}</span></td>
+      <td>${formatDate(order.createdAt)}</td>
+      <td>
+        <div class="actions">
+          <button class="btn secondary mini view-order" type="button" data-order-view="${order.id}">Ver</button>
+          ${isAdmin() ? `
+            <select class="order-status-select" data-order-status="${order.id}">
+              <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pendente</option>
+              <option value="in_progress" ${order.status === 'in_progress' ? 'selected' : ''}>Em curso</option>
+              <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Concluída</option>
+              <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelada</option>
+            </select>
+          ` : ''}
+          ${(isAdmin() || (order.createdBy === currentUser?.id && order.status === 'pending')) ? `
+            <button class="btn danger mini" type="button" data-order-delete="${order.id}">Apagar</button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderOrders() {
   const table = $('#ordersTable');
 
   if (!table) return;
 
-  table.innerHTML = orders.length
-    ? orders.map((order, index) => `
-      <tr class="fade-in-row" style="--fade-index: ${index}">
-        <td>#${order.id}</td>
-        <td>
-          <strong>${escapeHTML(order.title)}</strong>
-          ${order.description ? `<span class="order-description">${escapeHTML(order.description)}</span>` : ''}
-        </td>
-        <td>${escapeHTML(order.createdByUsername || 'Utilizador removido')}</td>
-        <td>${paymentLabel(order.paymentMethod)}</td>
-        <td><span class="badge ${escapeHTML(order.status)}">${statusLabel(order.status)}</span></td>
-        <td>${formatDate(order.createdAt)}</td>
-        <td>
-          <div class="actions">
-            <button class="btn secondary mini view-order" type="button" data-order-view="${order.id}">Ver</button>
-            ${isAdmin() ? `
-              <select class="order-status-select" data-order-status="${order.id}">
-                <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pendente</option>
-                <option value="in_progress" ${order.status === 'in_progress' ? 'selected' : ''}>Em curso</option>
-                <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Concluída</option>
-                <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelada</option>
-              </select>
-            ` : ''}
-            ${(isAdmin() || (order.createdBy === currentUser?.id && order.status === 'pending')) ? `
-              <button class="btn danger mini" type="button" data-order-delete="${order.id}">Apagar</button>
-            ` : ''}
-          </div>
-        </td>
-      </tr>
-    `).join('')
+  const craftingOrders = orders.filter((order) => !isMoneyOrder(order));
+
+  table.innerHTML = craftingOrders.length
+    ? craftingOrders.map((order, index) => renderOrderRow(order, index)).join('')
     : '<tr><td colspan="7">Ainda não existem encomendas.</td></tr>';
+}
+
+function renderAmmunationOrders() {
+  const table = $('#ammunationOrdersTable');
+
+  if (!table) return;
+
+  const ammunationOrdersList = orders.filter((order) => isMoneyOrder(order));
+
+  table.innerHTML = ammunationOrdersList.length
+    ? ammunationOrdersList.map((order, index) => renderOrderRow(order, index)).join('')
+    : '<tr><td colspan="7">Ainda não existem encomendas Ammunation.</td></tr>';
 }
 
 function publicOrderStatusLabel(status) {
@@ -1291,6 +1314,7 @@ async function loadOrders() {
   if (!canViewOrders()) {
     orders = [];
     renderOrders();
+    renderAmmunationOrders();
     renderDashboard();
     return;
   }
@@ -1298,8 +1322,10 @@ async function loadOrders() {
   const data = await request('/api/orders');
   orders = data.orders;
   renderOrders();
+  renderAmmunationOrders();
   renderDashboard();
   await loadPendingMaterialsSummary();
+  await loadPendingMoneySummary();
 }
 
 async function loadPublicOrders() {
@@ -2680,6 +2706,37 @@ async function loadPendingMaterialsSummary() {
 }
 $('#refreshPendingMaterials').addEventListener('click', () => {
   loadPendingMaterialsSummary();
+});
+
+async function loadPendingMoneySummary() {
+  const container = $('#pendingMoneySummary');
+
+  if (!container || !isAdmin()) return;
+
+  try {
+    const data = await request('/api/orders/pending-money-summary');
+
+    if (!data.pendingOrders) {
+      container.innerHTML = '<p>Não existem encomendas Ammunation pendentes.</p>';
+      return;
+    }
+
+    container.innerHTML = `
+      <span class="pending-materials-count">
+        ${data.pendingOrders} encomenda${data.pendingOrders === 1 ? '' : 's'} pendente${data.pendingOrders === 1 ? '' : 's'}
+      </span>
+
+      <div class="calculator-totals">
+        <div class="calculator-total payment-total-clean">Dinheiro limpo: <strong>${formatMoney(data.totalClean)}</strong></div>
+        <div class="calculator-total payment-total-dirty">Dinheiro sujo: <strong>${formatMoney(data.totalDirty)}</strong></div>
+      </div>
+    `;
+  } catch (error) {
+    container.innerHTML = `<p class="error">${escapeHTML(error.message)}</p>`;
+  }
+}
+$('#refreshPendingMoney')?.addEventListener('click', () => {
+  loadPendingMoneySummary();
 });
 
 initialise();
