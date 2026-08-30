@@ -127,7 +127,13 @@ $('#publicOrderForm').addEventListener('submit', async (event) => {
     return;
   }
 
-  const paymentPreference = document.querySelector('input[name="paymentPreference"]:checked')?.value || 'materials';
+  const paymentPreferences = [...document.querySelectorAll('input[name="paymentPreference"]:checked')]
+    .map((input) => input.value);
+
+  if (!paymentPreferences.length) {
+    errorElement.textContent = 'Escolhe pelo menos uma preferência de pagamento.';
+    return;
+  }
 
   const submitButton = event.target.querySelector('button[type="submit"]');
   submitButton.disabled = true;
@@ -140,7 +146,7 @@ $('#publicOrderForm').addEventListener('submit', async (event) => {
         contactInfo: $('#contactInfo').value,
         deliveryInfo: $('#deliveryInfo').value,
         specialRequest: $('#specialRequest').value,
-        paymentPreference,
+        paymentPreferences,
         items
       })
     });
