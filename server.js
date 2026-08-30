@@ -248,6 +248,14 @@ addColumnIfMissing('residents_chest_items', 'min_stock', `INTEGER NOT NULL DEFAU
 addColumnIfMissing('officials_chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
 addColumnIfMissing('orders_chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
 
+// URL de imagem (opcional) associada a cada item de Baú, usada apenas para
+// mostrar uma miniatura no cartão do item — não é feito upload de ficheiros,
+// só se guarda o link indicado pelo administrador.
+addColumnIfMissing('chest_items', 'image_url', 'TEXT');
+addColumnIfMissing('residents_chest_items', 'image_url', 'TEXT');
+addColumnIfMissing('officials_chest_items', 'image_url', 'TEXT');
+addColumnIfMissing('orders_chest_items', 'image_url', 'TEXT');
+
 // payment_preference (coluna antiga) continua a guardar UM valor, usado como
 // sugestão inicial ao converter o pedido numa encomenda interna. As escolhas
 // reais (agora múltiplas) do visitante ficam em payment_preferences, como JSON.
@@ -644,6 +652,29 @@ function cleanText(value, min, max) {
   return result.length >= min && result.length <= max ? result : null;
 }
 
+// Valida o URL de imagem (opcional) de um item de Baú. Aceita apenas
+// http(s) e limita o tamanho para evitar abuso; um valor vazio é válido e
+// remove a imagem do item.
+function cleanImageUrl(value) {
+  if (value === undefined || value === null || value === '') {
+    return { imageUrl: null };
+  }
+
+  if (typeof value !== 'string') {
+    return { error: true };
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return { imageUrl: null };
+
+  if (trimmed.length > 2000 || !/^https?:\/\/.+/i.test(trimmed)) {
+    return { error: true };
+  }
+
+  return { imageUrl: trimmed };
+}
+
 function cleanUsername(value) {
   const username = cleanText(value, 3, 30);
   return username && /^[a-zA-Z0-9_.-]+$/.test(username) ? username : null;
@@ -933,13 +964,14 @@ function publicChestItem(item) {
     quantity: item.quantity,
     minStock,
     lowStock: item.quantity < minStock,
+    imageUrl: item.image_url || null,
     updatedAt: item.updated_at
   };
 }
 
 function getChestResponse(itemsTable, logsTable) {
   const items = db.prepare(`
-    SELECT id, name, quantity, min_stock, updated_at
+    SELECT id, name, quantity, min_stock, image_url, updated_at
     FROM ${itemsTable}
     ORDER BY name COLLATE NOCASE ASC
   `).all();
@@ -993,7 +1025,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(name);
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, updated_at
+        SELECT id, name, quantity, min_stock, image_url, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(result.lastInsertRowid);
@@ -1033,7 +1065,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, updated_at
+        SELECT id, name, quantity, min_stock, image_url, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1064,7 +1096,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, min_stock, updated_at
+        SELECT id, name, quantity, min_stock, image_url, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1120,7 +1152,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, updated_at
+        SELECT id, name, quantity, min_stock, image_url, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1136,12 +1168,54 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(minStock, id);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, min_stock, updated_at
+        SELECT id, name, quantity, min_stock, image_url, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
 
       logAction(req.user.id, `${itemsTable}_min_stock`, item.name);
+      res.json({ item: publicChestItem(updated) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Permite definir (ou remover) o URL de imagem de um item, usado só para
+  // mostrar uma miniatura mais bonita no cartão do item.
+  app.patch(`${prefix}/:id/image`, requireAuth, permission, (req, res, next) => {
+    try {
+      const id = ensureInteger(req.params.id, 1);
+      const imageResult = cleanImageUrl(req.body.imageUrl);
+
+      if (!id || imageResult.error) {
+        return res.status(400).json({
+          error: 'Indica um URL de imagem válido (http:// ou https://) ou deixa em branco para remover.'
+        });
+      }
+
+      const item = db.prepare(`
+        SELECT id, name, quantity, min_stock, image_url, updated_at
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      if (!item) {
+        return res.status(404).json({ error: 'Item do Baú não encontrado.' });
+      }
+
+      db.prepare(`
+        UPDATE ${itemsTable}
+        SET image_url = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(imageResult.imageUrl, id);
+
+      const updated = db.prepare(`
+        SELECT id, name, quantity, min_stock, image_url, updated_at
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      logAction(req.user.id, `${itemsTable}_image`, item.name);
       res.json({ item: publicChestItem(updated) });
     } catch (error) {
       next(error);
@@ -2840,7 +2914,7 @@ app.post('/api/chest', requireAuth, requireAdmin, (req, res, next) => {
     `).run(name);
 
     const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, image_url, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(result.lastInsertRowid);
@@ -2880,7 +2954,7 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     }
 
     const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, image_url, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
@@ -2911,7 +2985,7 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
     const updated = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, image_url, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
@@ -2967,7 +3041,7 @@ app.patch('/api/chest/:id/min-stock', requireAuth, requireAdmin, (req, res, next
     }
 
     const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, image_url, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
@@ -2983,12 +3057,54 @@ app.patch('/api/chest/:id/min-stock', requireAuth, requireAdmin, (req, res, next
     `).run(minStock, id);
 
     const updated = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, image_url, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
 
     logAction(req.user.id, 'chest_min_stock', item.name);
+    res.json({ item: publicChestItem(updated) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Permite definir (ou remover) o URL de imagem de um item do Baú 113, usado
+// só para mostrar uma miniatura mais bonita no cartão do item.
+app.patch('/api/chest/:id/image', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+    const imageResult = cleanImageUrl(req.body.imageUrl);
+
+    if (!id || imageResult.error) {
+      return res.status(400).json({
+        error: 'Indica um URL de imagem válido (http:// ou https://) ou deixa em branco para remover.'
+      });
+    }
+
+    const item = db.prepare(`
+      SELECT id, name, quantity, min_stock, image_url, updated_at
+      FROM chest_items
+      WHERE id = ?
+    `).get(id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
+    }
+
+    db.prepare(`
+      UPDATE chest_items
+      SET image_url = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(imageResult.imageUrl, id);
+
+    const updated = db.prepare(`
+      SELECT id, name, quantity, min_stock, image_url, updated_at
+      FROM chest_items
+      WHERE id = ?
+    `).get(id);
+
+    logAction(req.user.id, 'chest_image', item.name);
     res.json({ item: publicChestItem(updated) });
   } catch (error) {
     next(error);
@@ -3146,11 +3262,11 @@ app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
     );
 
     const fromItem = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at FROM ${from.itemsTable} WHERE id = ?
+      SELECT id, name, quantity, min_stock, image_url, updated_at FROM ${from.itemsTable} WHERE id = ?
     `).get(sourceItem.id);
 
     const toItem = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at FROM ${to.itemsTable} WHERE name = ?
+      SELECT id, name, quantity, min_stock, image_url, updated_at FROM ${to.itemsTable} WHERE name = ?
     `).get(sourceItem.name);
 
     res.status(201).json({
