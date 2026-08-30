@@ -789,11 +789,13 @@ function renderOrderCalculator() {
   const calculator = $('#orderCalculator');
   const selected = selectedOrderRecipes();
   const totals = new Map();
-  let totalPrice = 0;
+  let totalClean = 0;
+  let totalDirty = 0;
 
   for (const recipe of selected) {
     const quantity = Number(orderQuantities.get(recipe.id) || 0);
-    totalPrice += recipe.unitPrice * quantity;
+    totalClean += (recipe.cleanPrice ?? recipe.unitPrice) * quantity;
+    totalDirty += (recipe.dirtyPrice ?? recipe.unitPrice) * quantity;
 
     for (const material of recipe.materials) {
       const current = totals.get(material.name) || 0;
@@ -804,11 +806,14 @@ function renderOrderCalculator() {
   calculator.innerHTML = selected.length
     ? `
       <div class="calculator-summary">
-        <div class="calculator-total">Preço estimado: <strong>${formatMoney(totalPrice)}</strong></div>
+        <div class="calculator-totals">
+          <div class="calculator-total payment-total-clean">Total limpo: <strong>${formatMoney(totalClean)}</strong></div>
+          <div class="calculator-total payment-total-dirty">Total sujo: <strong>${formatMoney(totalDirty)}</strong></div>
+        </div>
         <strong>Itens</strong>
         <ul class="calculator-list">
           ${selected.map((recipe) => `
-            <li><span>${escapeHTML(recipe.name)} × ${orderQuantities.get(recipe.id)}</span><span>${formatMoney(recipe.unitPrice * orderQuantities.get(recipe.id))}</span></li>
+            <li><span>${escapeHTML(recipe.name)} × ${orderQuantities.get(recipe.id)}</span><span>${formatMoney((recipe.cleanPrice ?? recipe.unitPrice) * orderQuantities.get(recipe.id))} / ${formatMoney((recipe.dirtyPrice ?? recipe.unitPrice) * orderQuantities.get(recipe.id))}</span></li>
           `).join('')}
         </ul>
         <strong>Materiais necessários</strong>
@@ -857,28 +862,29 @@ function renderAmmunationCalculator() {
   const calculator = $('#ammunationCalculator');
   const method = selectedPaymentMethod();
   const selected = [];
-  let total = 0;
+  let totalClean = 0;
+  let totalDirty = 0;
 
   for (const item of ammunationItems) {
     const quantity = Number(ammunationQuantities.get(item.id) || 0);
 
     if (!quantity) continue;
 
-    const price = method === 'dirty' ? item.dirtyPrice : item.cleanPrice;
-    total += price * quantity;
-    selected.push({ item, quantity, price });
+    totalClean += item.cleanPrice * quantity;
+    totalDirty += item.dirtyPrice * quantity;
+    selected.push({ item, quantity });
   }
-
-  const className = method === 'dirty' ? 'payment-total-dirty' : 'payment-total-clean';
-  const label = method === 'dirty' ? 'Dinheiro sujo' : 'Dinheiro limpo';
 
   calculator.innerHTML = selected.length
     ? `
       <div class="calculator-summary">
-        <div class="calculator-total ${className}">${label}: <strong>${formatMoney(total)}</strong></div>
+        <div class="calculator-totals">
+          <div class="calculator-total payment-total-clean${method === 'clean' ? ' is-selected' : ''}">Dinheiro limpo: <strong>${formatMoney(totalClean)}</strong></div>
+          <div class="calculator-total payment-total-dirty${method === 'dirty' ? ' is-selected' : ''}">Dinheiro sujo: <strong>${formatMoney(totalDirty)}</strong></div>
+        </div>
         <ul class="calculator-list">
-          ${selected.map(({ item, quantity, price }) => `
-            <li><span>${escapeHTML(item.name)} × ${quantity}</span><span>${formatMoney(price * quantity)}</span></li>
+          ${selected.map(({ item, quantity }) => `
+            <li><span>${escapeHTML(item.name)} × ${quantity}</span><span>${formatMoney(item.cleanPrice * quantity)} / ${formatMoney(item.dirtyPrice * quantity)}</span></li>
           `).join('')}
         </ul>
       </div>
@@ -2656,6 +2662,11 @@ async function loadPendingMaterialsSummary() {
       <span class="pending-materials-count">
         ${data.pendingOrders} encomenda${data.pendingOrders === 1 ? '' : 's'} pendente${data.pendingOrders === 1 ? '' : 's'}
       </span>
+
+      <div class="calculator-totals">
+        <div class="calculator-total payment-total-clean">Valor limpo: <strong>${formatMoney(data.totalClean)}</strong></div>
+        <div class="calculator-total payment-total-dirty">Valor sujo: <strong>${formatMoney(data.totalDirty)}</strong></div>
+      </div>
 
       ${data.materials.length ? `
         <div class="pending-materials-list">
