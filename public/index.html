@@ -156,6 +156,9 @@
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
+                  <th>De / Para</th>
+                  <th>Motivo</th>
+                  <th>Encomenda</th>
                   <th>Data</th>
                 </tr>
               </thead>
@@ -194,6 +197,9 @@
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
+                  <th>De / Para</th>
+                  <th>Motivo</th>
+                  <th>Encomenda</th>
                   <th>Data</th>
                 </tr>
               </thead>
@@ -232,6 +238,9 @@
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
+                  <th>De / Para</th>
+                  <th>Motivo</th>
+                  <th>Encomenda</th>
                   <th>Data</th>
                 </tr>
               </thead>
@@ -270,6 +279,9 @@
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
+                  <th>De / Para</th>
+                  <th>Motivo</th>
+                  <th>Encomenda</th>
                   <th>Data</th>
                 </tr>
               </thead>
@@ -632,6 +644,16 @@
         <input id="chestActionQuantity" type="number" min="1" step="1" required>
       </label>
 
+      <label class="field">
+        Encomenda associada (opcional)
+        <select id="chestActionOrder"><option value="">Nenhuma</option></select>
+      </label>
+
+      <label class="field">
+        Justificação <span id="chestActionReasonHint">(obrigatória se associares a uma encomenda)</span>
+        <textarea id="chestActionReason" maxlength="300" placeholder="Porque é que este movimento foi feito?"></textarea>
+      </label>
+
       <div id="chestActionError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
@@ -668,6 +690,16 @@
       <label class="field">
         Quantidade
         <input id="residentsChestActionQuantity" type="number" min="1" step="1" required>
+      </label>
+
+      <label class="field">
+        Encomenda associada (opcional)
+        <select id="residentsChestActionOrder"><option value="">Nenhuma</option></select>
+      </label>
+
+      <label class="field">
+        Justificação <span id="residentsChestActionReasonHint">(obrigatória se associares a uma encomenda)</span>
+        <textarea id="residentsChestActionReason" maxlength="300" placeholder="Porque é que este movimento foi feito?"></textarea>
       </label>
 
       <div id="residentsChestActionError" class="error" aria-live="polite"></div>
@@ -708,6 +740,16 @@
         <input id="officialsChestActionQuantity" type="number" min="1" step="1" required>
       </label>
 
+      <label class="field">
+        Encomenda associada (opcional)
+        <select id="officialsChestActionOrder"><option value="">Nenhuma</option></select>
+      </label>
+
+      <label class="field">
+        Justificação <span id="officialsChestActionReasonHint">(obrigatória se associares a uma encomenda)</span>
+        <textarea id="officialsChestActionReason" maxlength="300" placeholder="Porque é que este movimento foi feito?"></textarea>
+      </label>
+
       <div id="officialsChestActionError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
@@ -746,11 +788,55 @@
         <input id="ordersChestActionQuantity" type="number" min="1" step="1" required>
       </label>
 
+      <label class="field">
+        Encomenda associada (opcional)
+        <select id="ordersChestActionOrder"><option value="">Nenhuma</option></select>
+      </label>
+
+      <label class="field">
+        Justificação <span id="ordersChestActionReasonHint">(obrigatória se associares a uma encomenda)</span>
+        <textarea id="ordersChestActionReason" maxlength="300" placeholder="Porque é que este movimento foi feito?"></textarea>
+      </label>
+
       <div id="ordersChestActionError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
         <button id="closeOrdersChestActionDialog" class="btn secondary" type="button">Cancelar</button>
         <button class="btn primary" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chestTransferDialog">
+    <form id="chestTransferForm" class="modal" novalidate>
+      <h3 id="chestTransferTitle">Transferir item entre baús</h3>
+      <p id="chestTransferText"></p>
+
+      <label class="field">
+        Baú de destino
+        <select id="chestTransferDestination" required></select>
+      </label>
+
+      <label class="field">
+        Quantidade
+        <input id="chestTransferQuantity" type="number" min="1" step="1" required>
+      </label>
+
+      <label class="field">
+        Encomenda associada (opcional)
+        <select id="chestTransferOrder"><option value="">Nenhuma</option></select>
+      </label>
+
+      <label class="field">
+        Justificação (obrigatória)
+        <textarea id="chestTransferReason" maxlength="300" required placeholder="Porque é que este item está a ser transferido?"></textarea>
+      </label>
+
+      <div id="chestTransferError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeChestTransferDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Transferir</button>
       </div>
     </form>
   </dialog>
