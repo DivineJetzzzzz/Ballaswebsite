@@ -976,6 +976,27 @@
     </form>
   </dialog>
 
+  <dialog id="chestImageDialog">
+    <form id="chestImageForm" class="modal" novalidate>
+      <h3 id="chestImageTitle">Imagem</h3>
+      <p id="chestImageText"></p>
+
+      <label class="field">
+        URL da imagem <span>(deixa em branco para remover)</span>
+        <input id="chestImageUrl" type="url" maxlength="2000" placeholder="https://...">
+      </label>
+
+      <img id="chestImagePreview" class="chest-image-preview hidden" alt="Pré-visualização da imagem">
+
+      <div id="chestImageError" class="error" aria-live="polite"></div>
+
+      <div class="modal-actions">
+        <button id="closeChestImageDialog" class="btn secondary" type="button">Cancelar</button>
+        <button class="btn primary" type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="orderDialog" class="order-modal">
     <form id="orderForm" class="modal order-modal" novalidate>
       <div class="detail-head">
