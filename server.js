@@ -445,9 +445,9 @@ function requireResidentChiefOrAdmin(req, res, next) {
 }
 
 function allowOfficialsReadOrders(req, res, next) {
-  // GET - allow admin and officials
+  // GET - allow admin, officials e chefes de moradores (apenas leitura)
   if (req.method === 'GET') {
-    if (!['admin', 'officials'].includes(req.user.role)) {
+    if (!['admin', 'officials', 'resident_chief'].includes(req.user.role)) {
       return res.status(403).json({
         error: 'Acesso negado.'
       });
