@@ -237,6 +237,17 @@ addColumnIfMissing('catalog_items', 'dirty_price', 'INTEGER NOT NULL DEFAULT 0')
 addColumnIfMissing('orders', 'payment_method', "TEXT NOT NULL DEFAULT 'materials'");
 addColumnIfMissing('order_recipe_items', 'clean_price', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('order_recipe_items', 'dirty_price', 'INTEGER NOT NULL DEFAULT 0');
+
+// payment_preference (coluna antiga) continua a guardar UM valor, usado como
+// sugestão inicial ao converter o pedido numa encomenda interna. As escolhas
+// reais (agora múltiplas) do visitante ficam em payment_preferences, como JSON.
+addColumnIfMissing('public_orders', 'payment_preferences', "TEXT NOT NULL DEFAULT '[]'");
+
+db.exec(`
+  UPDATE public_orders
+  SET payment_preferences = json_array(payment_preference)
+  WHERE payment_preferences = '[]' OR payment_preferences IS NULL
+`);
 const usersTableSql = db.prepare(`
   SELECT sql
   FROM sqlite_master
@@ -1039,7 +1050,14 @@ function publicOrderSummary(row) {
     id: row.id,
     contactName: row.contact_name,
     contactInfo: row.contact_info,
-    paymentPreference: row.payment_preference,
+    paymentPreferences: (() => {
+      try {
+        const parsed = JSON.parse(row.payment_preferences || '[]');
+        return Array.isArray(parsed) && parsed.length ? parsed : [row.payment_preference];
+      } catch {
+        return [row.payment_preference];
+      }
+    })(),
     deliveryInfo: row.delivery_info,
     specialRequest: row.special_request,
     status: row.status,
@@ -1100,9 +1118,18 @@ app.post('/api/public/orders', publicOrderLimiter, (req, res, next) => {
     const contactInfo = cleanText(req.body.contactInfo, 3, 150);
     const deliveryInfo = cleanText(req.body.deliveryInfo, 3, 300);
 
-    const paymentPreference = PAYMENT_PREFERENCES.includes(req.body.paymentPreference)
-      ? req.body.paymentPreference
-      : 'materials';
+    const requestedPreferences = Array.isArray(req.body.paymentPreferences)
+      ? req.body.paymentPreferences
+      : [];
+
+    const paymentPreferences = [...new Set(requestedPreferences)]
+      .filter((value) => PAYMENT_PREFERENCES.includes(value));
+
+    if (!paymentPreferences.length) {
+      return res.status(400).json({
+        error: 'Escolhe pelo menos uma preferência de pagamento.'
+      });
+    }
 
     const specialRequest = typeof req.body.specialRequest === 'string'
       ? req.body.specialRequest.trim().slice(0, 1000)
@@ -1158,10 +1185,17 @@ app.post('/api/public/orders', publicOrderLimiter, (req, res, next) => {
     const createPublicOrder = db.transaction(() => {
       const result = db.prepare(`
         INSERT INTO public_orders (
-          contact_name, contact_info, payment_preference, delivery_info, special_request
+          contact_name, contact_info, payment_preference, payment_preferences, delivery_info, special_request
         )
-        VALUES (?, ?, ?, ?, ?)
-      `).run(contactName, contactInfo, paymentPreference, deliveryInfo, specialRequest);
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        contactName,
+        contactInfo,
+        paymentPreferences[0],
+        JSON.stringify(paymentPreferences),
+        deliveryInfo,
+        specialRequest
+      );
 
       const publicOrderId = Number(result.lastInsertRowid);
 
