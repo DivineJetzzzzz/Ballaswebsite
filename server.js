@@ -238,6 +238,16 @@ addColumnIfMissing('orders', 'payment_method', "TEXT NOT NULL DEFAULT 'materials
 addColumnIfMissing('order_recipe_items', 'clean_price', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('order_recipe_items', 'dirty_price', 'INTEGER NOT NULL DEFAULT 0');
 
+// Stock mínimo por item de Baú — usado para gerar alertas de stock quando a
+// quantidade disponível cai abaixo do valor definido. Todos os itens
+// existentes arrancam com 10.000 como stock mínimo por omissão.
+const DEFAULT_MIN_STOCK = 10000;
+
+addColumnIfMissing('chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
+addColumnIfMissing('residents_chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
+addColumnIfMissing('officials_chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
+addColumnIfMissing('orders_chest_items', 'min_stock', `INTEGER NOT NULL DEFAULT ${DEFAULT_MIN_STOCK}`);
+
 // payment_preference (coluna antiga) continua a guardar UM valor, usado como
 // sugestão inicial ao converter o pedido numa encomenda interna. As escolhas
 // reais (agora múltiplas) do visitante ficam em payment_preferences, como JSON.
@@ -915,17 +925,21 @@ function getDetailedOrder(id) {
 }
 
 function publicChestItem(item) {
+  const minStock = item.min_stock ?? DEFAULT_MIN_STOCK;
+
   return {
     id: item.id,
     name: item.name,
     quantity: item.quantity,
+    minStock,
+    lowStock: item.quantity < minStock,
     updatedAt: item.updated_at
   };
 }
 
 function getChestResponse(itemsTable, logsTable) {
   const items = db.prepare(`
-    SELECT id, name, quantity, updated_at
+    SELECT id, name, quantity, min_stock, updated_at
     FROM ${itemsTable}
     ORDER BY name COLLATE NOCASE ASC
   `).all();
@@ -979,7 +993,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(name);
 
       const item = db.prepare(`
-        SELECT id, name, quantity, updated_at
+        SELECT id, name, quantity, min_stock, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(result.lastInsertRowid);
@@ -1019,7 +1033,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, updated_at
+        SELECT id, name, quantity, min_stock, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1050,7 +1064,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, updated_at
+        SELECT id, name, quantity, min_stock, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1089,6 +1103,46 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
 
       logAction(req.user.id, `delete_${itemsTable}_item`, item.name);
       res.status(204).end();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Permite definir o stock mínimo de um item, usado para calcular os
+  // alertas de stock (item.quantity < item.min_stock).
+  app.patch(`${prefix}/:id/min-stock`, requireAuth, permission, (req, res, next) => {
+    try {
+      const id = ensureInteger(req.params.id, 1);
+      const minStock = ensureInteger(req.body.minStock, 0, 1000000000);
+
+      if (!id || minStock === null) {
+        return res.status(400).json({ error: 'Stock mínimo inválido.' });
+      }
+
+      const item = db.prepare(`
+        SELECT id, name, quantity, min_stock, updated_at
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      if (!item) {
+        return res.status(404).json({ error: 'Item do Baú não encontrado.' });
+      }
+
+      db.prepare(`
+        UPDATE ${itemsTable}
+        SET min_stock = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(minStock, id);
+
+      const updated = db.prepare(`
+        SELECT id, name, quantity, min_stock, updated_at
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      logAction(req.user.id, `${itemsTable}_min_stock`, item.name);
+      res.json({ item: publicChestItem(updated) });
     } catch (error) {
       next(error);
     }
@@ -2786,7 +2840,7 @@ app.post('/api/chest', requireAuth, requireAdmin, (req, res, next) => {
     `).run(name);
 
     const item = db.prepare(`
-      SELECT id, name, quantity, updated_at
+      SELECT id, name, quantity, min_stock, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(result.lastInsertRowid);
@@ -2826,7 +2880,7 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     }
 
     const item = db.prepare(`
-      SELECT id, name, quantity, updated_at
+      SELECT id, name, quantity, min_stock, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
@@ -2857,7 +2911,7 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
     const updated = db.prepare(`
-      SELECT id, name, quantity, updated_at
+      SELECT id, name, quantity, min_stock, updated_at
       FROM chest_items
       WHERE id = ?
     `).get(id);
@@ -2896,6 +2950,46 @@ app.delete('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
 
     logAction(req.user.id, 'delete_chest_item', item.name);
     res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Permite definir o stock mínimo de um item do Baú 113, usado para calcular
+// os alertas de stock (item.quantity < item.min_stock).
+app.patch('/api/chest/:id/min-stock', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+    const minStock = ensureInteger(req.body.minStock, 0, 1000000000);
+
+    if (!id || minStock === null) {
+      return res.status(400).json({ error: 'Stock mínimo inválido.' });
+    }
+
+    const item = db.prepare(`
+      SELECT id, name, quantity, min_stock, updated_at
+      FROM chest_items
+      WHERE id = ?
+    `).get(id);
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
+    }
+
+    db.prepare(`
+      UPDATE chest_items
+      SET min_stock = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(minStock, id);
+
+    const updated = db.prepare(`
+      SELECT id, name, quantity, min_stock, updated_at
+      FROM chest_items
+      WHERE id = ?
+    `).get(id);
+
+    logAction(req.user.id, 'chest_min_stock', item.name);
+    res.json({ item: publicChestItem(updated) });
   } catch (error) {
     next(error);
   }
@@ -3052,11 +3146,11 @@ app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
     );
 
     const fromItem = db.prepare(`
-      SELECT id, name, quantity, updated_at FROM ${from.itemsTable} WHERE id = ?
+      SELECT id, name, quantity, min_stock, updated_at FROM ${from.itemsTable} WHERE id = ?
     `).get(sourceItem.id);
 
     const toItem = db.prepare(`
-      SELECT id, name, quantity, updated_at FROM ${to.itemsTable} WHERE name = ?
+      SELECT id, name, quantity, min_stock, updated_at FROM ${to.itemsTable} WHERE name = ?
     `).get(sourceItem.name);
 
     res.status(201).json({
@@ -3069,6 +3163,34 @@ app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// Agrega os itens abaixo do stock mínimo em todos os baús a que o
+// utilizador autenticado tem acesso, para alimentar o painel de alertas
+// de stock na Visão geral.
+app.get('/api/stock-alerts', requireAuth, (req, res) => {
+  const alerts = [];
+
+  for (const [chestKey, config] of Object.entries(CHEST_CONFIG)) {
+    if (!config.canAccess(req.user.role)) continue;
+
+    const lowItems = db.prepare(`
+      SELECT id, name, quantity, min_stock, updated_at
+      FROM ${config.itemsTable}
+      WHERE quantity < min_stock
+      ORDER BY (min_stock - quantity) DESC, name COLLATE NOCASE ASC
+    `).all();
+
+    for (const item of lowItems) {
+      alerts.push({
+        chestKey,
+        chestLabel: config.label,
+        ...publicChestItem(item)
+      });
+    }
+  }
+
+  res.json({ alerts });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
