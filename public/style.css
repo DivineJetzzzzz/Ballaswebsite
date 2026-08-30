@@ -345,6 +345,36 @@ header p {
   margin-bottom: 0;
 }
 
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.mobile-menu-toggle,
+.mobile-menu-close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(142, 68, 255, 0.16);
+  color: #ffffff;
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mobile-menu-close {
+  margin-left: auto;
+}
+
+.mobile-menu-overlay {
+  display: none;
+}
+
 time {
   color: var(--muted);
   font-size: 13px;
@@ -856,7 +886,39 @@ dialog.order-modal {
   }
 
   .app > aside {
-    display: none;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(82vw, 300px);
+    transform: translateX(-100%);
+    transition: transform 0.24s ease;
+    box-shadow: 24px 0 60px rgba(0, 0, 0, 0.55);
+  }
+
+  .app > aside.open {
+    transform: translateX(0);
+  }
+
+  .mobile-menu-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(4, 2, 8, 0.66);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+  }
+
+  .mobile-menu-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-menu-toggle,
+  .mobile-menu-close {
+    display: inline-flex;
   }
 
   main {
