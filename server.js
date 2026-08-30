@@ -193,6 +193,35 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
   );
+
+  CREATE TABLE IF NOT EXISTS public_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_name TEXT NOT NULL,
+    contact_info TEXT NOT NULL DEFAULT '',
+    payment_preference TEXT NOT NULL CHECK(payment_preference IN ('materials', 'clean', 'dirty')) DEFAULT 'materials',
+    delivery_info TEXT NOT NULL DEFAULT '',
+    special_request TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'rejected', 'archived', 'spam')) DEFAULT 'pending',
+    rejection_reason TEXT,
+    internal_notes TEXT,
+    converted_order_id INTEGER,
+    reviewed_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (converted_order_id) REFERENCES orders(id) ON DELETE SET NULL,
+    FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS public_order_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    public_order_id INTEGER NOT NULL,
+    catalog_item_id INTEGER,
+    item_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    quantity INTEGER NOT NULL CHECK(quantity > 0),
+    FOREIGN KEY (public_order_id) REFERENCES public_orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL
+  );
 `);
 
 function addColumnIfMissing(table, column, definition) {
@@ -422,6 +451,18 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     error: 'Demasiadas tentativas. Tenta novamente dentro de 15 minutos.'
+  }
+});
+
+// Limita quantos pedidos públicos o mesmo IP pode submeter, já que a
+// página /encomendar não exige login nem conta.
+const publicOrderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 6,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: {
+    error: 'Demasiados pedidos enviados. Tenta novamente dentro de 15 minutos.'
   }
 });
 
@@ -956,6 +997,204 @@ function resolveMovementJustification(body) {
 
   return { reason: reasonResult.reason, orderId };
 }
+
+// ==================================================================
+// SISTEMA HÍBRIDO DE PEDIDOS PÚBLICOS
+// ==================================================================
+// A página /encomendar é pública (sem login). Qualquer visitante pode
+// consultar o catálogo público e submeter um pedido, que fica guardado
+// em "public_orders" separado das encomendas internas. Só um admin,
+// a partir do dashboard privado, pode aceitar/converter, rejeitar,
+// arquivar ou marcar como spam um pedido público.
+
+const PUBLIC_ORDER_STATUSES = ['pending', 'accepted', 'rejected', 'archived', 'spam'];
+const PAYMENT_PREFERENCES = ['materials', 'clean', 'dirty'];
+
+app.get('/encomendar', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'encomendar.html'));
+});
+
+// Catálogo público: apenas nome, categoria e preço de referência.
+// Nunca expõe materiais, stock, IDs de utilizadores ou outros pedidos.
+app.get('/api/public/catalog', (req, res) => {
+  const items = db.prepare(`
+    SELECT id, name, category, unit_price
+    FROM catalog_items
+    WHERE active = 1
+    ORDER BY category COLLATE NOCASE ASC, name COLLATE NOCASE ASC
+  `).all();
+
+  res.json({
+    items: items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      referencePrice: item.unit_price
+    }))
+  });
+});
+
+function publicOrderSummary(row) {
+  return {
+    id: row.id,
+    contactName: row.contact_name,
+    contactInfo: row.contact_info,
+    paymentPreference: row.payment_preference,
+    deliveryInfo: row.delivery_info,
+    specialRequest: row.special_request,
+    status: row.status,
+    rejectionReason: row.rejection_reason,
+    internalNotes: row.internal_notes,
+    convertedOrderId: row.converted_order_id,
+    reviewedByUsername: row.reviewed_by_username || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function getPublicOrderRow(id) {
+  return db.prepare(`
+    SELECT public_orders.*, users.username AS reviewed_by_username
+    FROM public_orders
+    LEFT JOIN users ON users.id = public_orders.reviewed_by
+    WHERE public_orders.id = ?
+  `).get(id);
+}
+
+function getDetailedPublicOrder(id) {
+  const row = getPublicOrderRow(id);
+
+  if (!row) return null;
+
+  const items = db.prepare(`
+    SELECT id, catalog_item_id, item_name, category, quantity
+    FROM public_order_items
+    WHERE public_order_id = ?
+    ORDER BY category COLLATE NOCASE ASC, item_name COLLATE NOCASE ASC
+  `).all(id);
+
+  const convertedOrder = row.converted_order_id
+    ? publicOrder(getOrderById(row.converted_order_id))
+    : null;
+
+  return {
+    ...publicOrderSummary(row),
+    items: items.map((item) => ({
+      id: item.id,
+      catalogItemId: item.catalog_item_id,
+      name: item.item_name,
+      category: item.category,
+      quantity: item.quantity
+    })),
+    convertedOrder
+  };
+}
+
+// Submissão pública de um pedido. Não exige sessão nem conta.
+// O backend é sempre a fonte de verdade: os itens escolhidos são
+// revalidados contra o catálogo (existência, estado ativo); nada vindo
+// do browser é usado para decidir preços, permissões ou disponibilidade.
+app.post('/api/public/orders', publicOrderLimiter, (req, res, next) => {
+  try {
+    const contactName = cleanText(req.body.contactName, 2, 60);
+    const contactInfo = cleanText(req.body.contactInfo, 3, 150);
+    const deliveryInfo = cleanText(req.body.deliveryInfo, 3, 300);
+
+    const paymentPreference = PAYMENT_PREFERENCES.includes(req.body.paymentPreference)
+      ? req.body.paymentPreference
+      : 'materials';
+
+    const specialRequest = typeof req.body.specialRequest === 'string'
+      ? req.body.specialRequest.trim().slice(0, 1000)
+      : '';
+
+    const requestedItems = Array.isArray(req.body.items) ? req.body.items : [];
+
+    if (!contactName || !contactInfo || !deliveryInfo) {
+      return res.status(400).json({
+        error: 'Preenche o teu nome/contacto RP e o local ou prazo de entrega.'
+      });
+    }
+
+    if (requestedItems.length === 0 || requestedItems.length > 30) {
+      return res.status(400).json({
+        error: 'Escolhe entre 1 e 30 itens do catálogo, com quantidade.'
+      });
+    }
+
+    const grouped = new Map();
+
+    for (const entry of requestedItems) {
+      const itemId = ensureInteger(entry.itemId, 1);
+      const quantity = ensureInteger(entry.quantity, 1, 100000);
+
+      if (!itemId || !quantity) {
+        return res.status(400).json({ error: 'Uma das quantidades escolhidas é inválida.' });
+      }
+
+      grouped.set(itemId, (grouped.get(itemId) || 0) + quantity);
+    }
+
+    const itemQuery = db.prepare(`
+      SELECT id, name, category, active
+      FROM catalog_items
+      WHERE id = ?
+    `);
+
+    const selections = [];
+
+    for (const [itemId, quantity] of grouped) {
+      const item = itemQuery.get(itemId);
+
+      if (!item || !item.active) {
+        return res.status(400).json({
+          error: 'Um dos itens escolhidos já não está disponível. Atualiza a página e tenta novamente.'
+        });
+      }
+
+      selections.push({ item, quantity });
+    }
+
+    const createPublicOrder = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO public_orders (
+          contact_name, contact_info, payment_preference, delivery_info, special_request
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `).run(contactName, contactInfo, paymentPreference, deliveryInfo, specialRequest);
+
+      const publicOrderId = Number(result.lastInsertRowid);
+
+      const insertItem = db.prepare(`
+        INSERT INTO public_order_items (public_order_id, catalog_item_id, item_name, category, quantity)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      for (const selection of selections) {
+        insertItem.run(
+          publicOrderId,
+          selection.item.id,
+          selection.item.name,
+          selection.item.category,
+          selection.quantity
+        );
+      }
+
+      return publicOrderId;
+    });
+
+    const id = createPublicOrder();
+
+    logAction(null, 'create_public_order', contactName);
+
+    res.status(201).json({
+      id,
+      message: 'O teu pedido foi enviado com sucesso. A organização vai analisá-lo em breve.'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.post('/api/login', loginLimiter, async (req, res, next) => {
   try {
@@ -1913,6 +2152,385 @@ app.delete('/api/orders/:id', requireAuth, requireAdmin, (req, res, next) => {
 
     logAction(req.user.id, 'delete_order', order.title);
     res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ------------------------------------------------------------------
+// Gestão administrativa dos pedidos públicos (secção "Pedidos Públicos"
+// do dashboard privado). Só administradores podem ver ou agir sobre
+// estes pedidos; a criação em si é feita pela rota pública acima.
+// ------------------------------------------------------------------
+
+app.get('/api/public-orders', requireAuth, requireAdmin, (req, res) => {
+  const rows = db.prepare(`
+    SELECT public_orders.*, users.username AS reviewed_by_username
+    FROM public_orders
+    LEFT JOIN users ON users.id = public_orders.reviewed_by
+    ORDER BY
+      CASE public_orders.status WHEN 'pending' THEN 0 ELSE 1 END,
+      public_orders.created_at DESC,
+      public_orders.id DESC
+  `).all();
+
+  const itemCounts = db.prepare(`
+    SELECT public_order_id, COUNT(*) AS count
+    FROM public_order_items
+    GROUP BY public_order_id
+  `).all();
+
+  const counts = new Map(itemCounts.map((row) => [row.public_order_id, row.count]));
+
+  res.json({
+    publicOrders: rows.map((row) => ({
+      ...publicOrderSummary(row),
+      itemsCount: counts.get(row.id) || 0
+    }))
+  });
+});
+
+app.get('/api/public-orders/:id', requireAuth, requireAdmin, (req, res) => {
+  const id = ensureInteger(req.params.id, 1);
+
+  if (!id) {
+    return res.status(400).json({ error: 'Pedido público inválido.' });
+  }
+
+  const order = getDetailedPublicOrder(id);
+
+  if (!order) {
+    return res.status(404).json({ error: 'Pedido público não encontrado.' });
+  }
+
+  res.json({ publicOrder: order });
+});
+
+app.patch('/api/public-orders/:id/notes', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    const notes = typeof req.body.notes === 'string' ? req.body.notes.trim().slice(0, 1000) : '';
+
+    db.prepare(`
+      UPDATE public_orders
+      SET internal_notes = ?, updated_at = CURRENT_TIMESTAMP, reviewed_by = ?
+      WHERE id = ?
+    `).run(notes || null, req.user.id, id);
+
+    logAction(req.user.id, 'update_public_order_notes', order.contact_name);
+    res.json({ publicOrder: getDetailedPublicOrder(id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/public-orders/:id/reject', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const reasonResult = cleanReason(req.body.reason, { required: true });
+
+    if (reasonResult.error) {
+      return res.status(400).json({
+        error: reasonResult.tooShortOrLong
+          ? 'A justificação deve ter entre 3 e 300 caracteres.'
+          : 'É obrigatório indicar uma justificação para rejeitar o pedido.'
+      });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    if (order.status === 'accepted') {
+      return res.status(400).json({
+        error: 'Este pedido já foi aceite e convertido numa encomenda interna.'
+      });
+    }
+
+    db.prepare(`
+      UPDATE public_orders
+      SET status = 'rejected', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP, reviewed_by = ?
+      WHERE id = ?
+    `).run(reasonResult.reason, req.user.id, id);
+
+    logAction(req.user.id, 'reject_public_order', order.contact_name);
+    res.json({ publicOrder: getDetailedPublicOrder(id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/public-orders/:id/archive', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    if (order.status === 'accepted') {
+      return res.status(400).json({
+        error: 'Este pedido já foi aceite e convertido numa encomenda interna.'
+      });
+    }
+
+    db.prepare(`
+      UPDATE public_orders
+      SET status = 'archived', updated_at = CURRENT_TIMESTAMP, reviewed_by = ?
+      WHERE id = ?
+    `).run(req.user.id, id);
+
+    logAction(req.user.id, 'archive_public_order', order.contact_name);
+    res.json({ publicOrder: getDetailedPublicOrder(id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/public-orders/:id/spam', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    if (order.status === 'accepted') {
+      return res.status(400).json({
+        error: 'Este pedido já foi aceite e convertido numa encomenda interna.'
+      });
+    }
+
+    db.prepare(`
+      UPDATE public_orders
+      SET status = 'spam', updated_at = CURRENT_TIMESTAMP, reviewed_by = ?
+      WHERE id = ?
+    `).run(req.user.id, id);
+
+    logAction(req.user.id, 'mark_public_order_spam', order.contact_name);
+    res.json({ publicOrder: getDetailedPublicOrder(id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/public-orders/:id/restore', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    if (order.status === 'accepted') {
+      return res.status(400).json({
+        error: 'Este pedido já foi aceite e convertido numa encomenda interna.'
+      });
+    }
+
+    db.prepare(`
+      UPDATE public_orders
+      SET status = 'pending', rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP, reviewed_by = ?
+      WHERE id = ?
+    `).run(req.user.id, id);
+
+    logAction(req.user.id, 'restore_public_order', order.contact_name);
+    res.json({ publicOrder: getDetailedPublicOrder(id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Converte um pedido público numa encomenda interna real (crafting e/ou
+// Ammunation, consoante os itens escolhidos). O pedido público NUNCA cria
+// esta encomenda sozinho — só este endpoint, disparado por um admin, o faz.
+// Preços e materiais vêm sempre de catalog_items/catalog_item_materials,
+// nunca do corpo do pedido público nem do browser.
+app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Pedido público inválido.' });
+    }
+
+    const order = getPublicOrderRow(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Pedido público não encontrado.' });
+    }
+
+    if (order.status === 'accepted' || order.converted_order_id) {
+      return res.status(400).json({
+        error: 'Este pedido já foi convertido numa encomenda interna.'
+      });
+    }
+
+    const title = cleanText(req.body.title, 3, 100)
+      || `Pedido público #${id} - ${order.contact_name}`.slice(0, 100);
+
+    const paymentMethod = PAYMENT_PREFERENCES.includes(req.body.paymentMethod)
+      ? req.body.paymentMethod
+      : order.payment_preference;
+
+    const items = db.prepare(`
+      SELECT catalog_item_id, item_name, quantity
+      FROM public_order_items
+      WHERE public_order_id = ?
+    `).all(id);
+
+    if (!items.length) {
+      return res.status(400).json({ error: 'Este pedido não tem itens para converter.' });
+    }
+
+    const itemQuery = db.prepare(`
+      SELECT id, name, category, unit_price, clean_price, dirty_price, active
+      FROM catalog_items
+      WHERE id = ?
+    `);
+
+    const ingredientsQuery = db.prepare(`
+      SELECT materials.id, materials.name, catalog_item_materials.quantity
+      FROM catalog_item_materials
+      INNER JOIN materials ON materials.id = catalog_item_materials.material_id
+      WHERE catalog_item_materials.item_id = ? AND materials.active = 1
+    `);
+
+    const selections = [];
+    const materialTotals = new Map();
+
+    for (const publicItem of items) {
+      if (!publicItem.catalog_item_id) {
+        return res.status(400).json({
+          error: `O item "${publicItem.item_name}" já não existe no catálogo e não pode ser convertido.`
+        });
+      }
+
+      const item = itemQuery.get(publicItem.catalog_item_id);
+
+      if (!item || !item.active) {
+        return res.status(400).json({
+          error: `O item "${publicItem.item_name}" já não existe ou está desativado.`
+        });
+      }
+
+      selections.push({ item, quantity: publicItem.quantity });
+
+      if (paymentMethod === 'materials') {
+        const ingredients = ingredientsQuery.all(item.id);
+
+        for (const ingredient of ingredients) {
+          const total = materialTotals.get(ingredient.id) || {
+            materialId: ingredient.id,
+            name: ingredient.name,
+            quantity: 0
+          };
+
+          total.quantity += ingredient.quantity * publicItem.quantity;
+          materialTotals.set(ingredient.id, total);
+        }
+      }
+    }
+
+    const convert = db.transaction(() => {
+      const description = [
+        `Convertido do pedido público #${id}.`,
+        `Contacto: ${order.contact_name} (${order.contact_info}).`,
+        `Entrega: ${order.delivery_info}.`,
+        order.special_request ? `Pedido especial: ${order.special_request}` : ''
+      ].filter(Boolean).join('\n').slice(0, 2000);
+
+      const result = db.prepare(`
+        INSERT INTO orders (title, description, status, payment_method, created_by)
+        VALUES (?, ?, 'pending', ?, ?)
+      `).run(title, description, paymentMethod, req.user.id);
+
+      const orderId = Number(result.lastInsertRowid);
+
+      const insertItem = db.prepare(`
+        INSERT INTO order_recipe_items (
+          order_id, catalog_item_id, item_name, category, unit_price, clean_price, dirty_price, quantity
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const selection of selections) {
+        insertItem.run(
+          orderId,
+          selection.item.id,
+          selection.item.name,
+          selection.item.category,
+          selection.item.unit_price,
+          selection.item.clean_price,
+          selection.item.dirty_price,
+          selection.quantity
+        );
+      }
+
+      if (paymentMethod === 'materials' && materialTotals.size) {
+        const insertMaterial = db.prepare(`
+          INSERT INTO order_material_totals (order_id, material_id, material_name, quantity)
+          VALUES (?, ?, ?, ?)
+        `);
+
+        for (const material of materialTotals.values()) {
+          insertMaterial.run(orderId, material.materialId, material.name, material.quantity);
+        }
+      }
+
+      db.prepare(`
+        UPDATE public_orders
+        SET status = 'accepted', converted_order_id = ?, reviewed_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(orderId, req.user.id, id);
+
+      return orderId;
+    });
+
+    const orderId = convert();
+
+    logAction(req.user.id, 'convert_public_order', order.contact_name);
+
+    res.status(201).json({
+      order: getDetailedOrder(orderId),
+      publicOrder: getDetailedPublicOrder(id)
+    });
   } catch (error) {
     next(error);
   }
