@@ -651,6 +651,17 @@ dialog.order-modal {
   overflow: auto;
 }
 
+.order-detail-modal {
+  width: min(96vw, 1100px);
+  max-width: 96vw;
+  max-height: 90vh;
+}
+
+.order-detail-modal.modal {
+  max-height: 90vh;
+  overflow: auto;
+}
+
 .order-builder {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 430px;
@@ -871,6 +882,11 @@ dialog.order-modal {
   }
 
   .order-modal {
+    width: 96vw;
+    max-width: 96vw;
+  }
+
+  .order-detail-modal {
     width: 96vw;
     max-width: 96vw;
   }
