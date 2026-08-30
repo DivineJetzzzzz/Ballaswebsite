@@ -15,6 +15,7 @@ let ordersChestItems = [];
 let ordersChestLogs = [];
 
 let editingRecipeId = null;
+let ordersSearchQuery = '';
 let orderQuantities = new Map();
 let ammunationItems = [];
 let ammunationQuantities = new Map();
@@ -682,6 +683,25 @@ function isMoneyOrder(order) {
   return order.paymentMethod === 'clean' || order.paymentMethod === 'dirty';
 }
 
+// Usada apenas na aba Encomendas, para encontrar rapidamente um pedido
+// específico por número, título/descrição ou por quem o criou.
+function orderMatchesSearch(order, query) {
+  if (!query) return true;
+
+  const haystack = [
+    `#${order.id}`,
+    order.title,
+    order.description,
+    order.createdByUsername,
+    statusLabel(order.status)
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(query.toLowerCase());
+}
+
 function renderOrderRow(order, index) {
   return `
     <tr class="fade-in-row" style="--fade-index: ${index}">
@@ -719,11 +739,17 @@ function renderOrders() {
 
   if (!table) return;
 
-  const craftingOrders = orders.filter((order) => !isMoneyOrder(order));
+  const query = ordersSearchQuery.trim();
+
+  const craftingOrders = orders
+    .filter((order) => !isMoneyOrder(order))
+    .filter((order) => orderMatchesSearch(order, query));
 
   table.innerHTML = craftingOrders.length
     ? craftingOrders.map((order, index) => renderOrderRow(order, index)).join('')
-    : '<tr><td colspan="7">Ainda não existem encomendas.</td></tr>';
+    : `<tr><td colspan="7">${
+      query ? 'Nenhuma encomenda encontrada para essa pesquisa.' : 'Ainda não existem encomendas.'
+    }</td></tr>`;
 }
 
 function renderAmmunationOrders() {
@@ -2238,6 +2264,11 @@ $('#minStockForm').addEventListener('submit', async (event) => {
 });
 
 $('#openOrderDialog').addEventListener('click', openOrderBuilder);
+
+$('#ordersSearchInput').addEventListener('input', (event) => {
+  ordersSearchQuery = event.target.value;
+  renderOrders();
+});
 
 $('#closeOrderDialog').addEventListener('click', () => {
   $('#orderDialog').close();
