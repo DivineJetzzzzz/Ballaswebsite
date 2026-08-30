@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
@@ -304,6 +305,60 @@ if (ordersTableSql.includes('ON DELETE RESTRICT')) {
 
   db.pragma('foreign_keys = ON');
 }
+
+// Migra as tabelas de logs dos baús para suportarem transferências entre
+// baús, justificação obrigatória e associação a encomendas, preservando
+// o histórico já existente.
+function migrateChestLogsTable(table) {
+  const currentSql = db.prepare(`
+    SELECT sql
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+  `).get(table)?.sql || '';
+
+  if (!currentSql || currentSql.includes('transfer_in')) return;
+
+  db.pragma('foreign_keys = OFF');
+
+  db.transaction(() => {
+    db.exec(`ALTER TABLE ${table} RENAME TO ${table}_old;`);
+
+    db.exec(`
+      CREATE TABLE ${table} (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER,
+        item_name TEXT NOT NULL,
+        change_type TEXT NOT NULL CHECK(change_type IN ('add', 'remove', 'create', 'delete', 'transfer_in', 'transfer_out')),
+        quantity INTEGER NOT NULL DEFAULT 0,
+        actor_id INTEGER,
+        reason TEXT,
+        order_id INTEGER,
+        transfer_group TEXT,
+        counterpart_label TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+      );
+    `);
+
+    db.exec(`
+      INSERT INTO ${table} (id, item_id, item_name, change_type, quantity, actor_id, created_at)
+      SELECT id, item_id, item_name, change_type, quantity, actor_id, created_at
+      FROM ${table}_old;
+    `);
+
+    db.exec(`DROP TABLE ${table}_old;`);
+  })();
+
+  db.pragma('foreign_keys = ON');
+}
+
+[
+  'chest_logs',
+  'residents_chest_logs',
+  'officials_chest_logs',
+  'orders_chest_logs'
+].forEach(migrateChestLogsTable);
 
 db.exec(`
   UPDATE catalog_items
@@ -670,9 +725,10 @@ function getChestResponse(itemsTable, logsTable) {
   `).all();
 
   const logs = db.prepare(`
-    SELECT ${logsTable}.*, users.username AS actor_username
+    SELECT ${logsTable}.*, users.username AS actor_username, orders.title AS order_title
     FROM ${logsTable}
     LEFT JOIN users ON users.id = ${logsTable}.actor_id
+    LEFT JOIN orders ON orders.id = ${logsTable}.order_id
     ORDER BY ${logsTable}.created_at DESC, ${logsTable}.id DESC
     LIMIT 30
   `).all();
@@ -686,6 +742,11 @@ function getChestResponse(itemsTable, logsTable) {
       changeType: log.change_type,
       quantity: log.quantity,
       actorUsername: log.actor_username || 'Sistema',
+      reason: log.reason || null,
+      orderId: log.order_id || null,
+      orderTitle: log.order_title || null,
+      transferGroup: log.transfer_group || null,
+      counterpartLabel: log.counterpart_label || null,
       createdAt: log.created_at
     }))
   };
@@ -745,6 +806,12 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
         return res.status(400).json({ error: 'Movimento de Baú inválido.' });
       }
 
+      const justification = resolveMovementJustification(req.body);
+
+      if (justification.error) {
+        return res.status(400).json({ error: justification.error });
+      }
+
       const item = db.prepare(`
         SELECT id, name, quantity, updated_at
         FROM ${itemsTable}
@@ -772,9 +839,9 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(newQuantity, id);
 
       db.prepare(`
-        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(id, item.name, action, quantity, req.user.id);
+        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, reason, order_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
       const updated = db.prepare(`
         SELECT id, name, quantity, updated_at
@@ -820,6 +887,74 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       next(error);
     }
   });
+}
+
+// Configuração central dos 4 baús, usada pela transferência entre baús e
+// pela associação de movimentos a encomendas, para garantir que a mesma
+// regra de permissões é aplicada em todo o lado.
+const CHEST_CONFIG = {
+  chest: {
+    itemsTable: 'chest_items',
+    logsTable: 'chest_logs',
+    label: 'Baú 113',
+    canAccess: (role) => role === 'admin'
+  },
+  residents: {
+    itemsTable: 'residents_chest_items',
+    logsTable: 'residents_chest_logs',
+    label: 'Baú de Moradores',
+    canAccess: (role) => role === 'admin' || role === 'resident_chief'
+  },
+  officials: {
+    itemsTable: 'officials_chest_items',
+    logsTable: 'officials_chest_logs',
+    label: 'Baú de Oficiais',
+    canAccess: (role) => role === 'admin' || role === 'officials'
+  },
+  orders: {
+    itemsTable: 'orders_chest_items',
+    logsTable: 'orders_chest_logs',
+    label: 'Baú de Encomendas',
+    canAccess: (role) => role === 'admin'
+  }
+};
+
+function cleanReason(value, { required } = {}) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+
+  if (!raw) return required ? { error: true } : { reason: null };
+
+  if (raw.length < 3 || raw.length > 300) {
+    return { error: true, tooShortOrLong: true };
+  }
+
+  return { reason: raw };
+}
+
+// Valida a justificação e a encomenda (opcional) de um movimento de stock.
+// Se for indicada uma encomenda, a justificação passa a ser obrigatória.
+function resolveMovementJustification(body) {
+  let orderId = null;
+
+  if (body.orderId !== undefined && body.orderId !== null && body.orderId !== '') {
+    orderId = ensureInteger(body.orderId, 1);
+
+    if (!orderId || !db.prepare('SELECT id FROM orders WHERE id = ?').get(orderId)) {
+      return { error: 'A encomenda associada é inválida ou não existe.' };
+    }
+  }
+
+  const reasonResult = cleanReason(body.reason, { required: Boolean(orderId) });
+
+  if (reasonResult.error) {
+    return {
+      error: reasonResult.tooShortOrLong
+        ? 'A justificação deve ter entre 3 e 300 caracteres.'
+        : 'É obrigatório indicar uma justificação para associar o movimento a uma encomenda.'
+    };
+  }
+
+  return { reason: reasonResult.reason, orderId };
 }
 
 app.post('/api/login', loginLimiter, async (req, res, next) => {
@@ -1437,6 +1572,50 @@ app.get('/api/orders/:id', requireAuth, allowOfficialsReadOrders, (req, res) => 
   res.json({ order });
 });
 
+app.get('/api/orders/:id/movements', requireAuth, allowOfficialsReadOrders, (req, res, next) => {
+  try {
+    const id = ensureInteger(req.params.id, 1);
+
+    if (!id) {
+      return res.status(400).json({ error: 'Encomenda inválida.' });
+    }
+
+    const order = getOrderById(id);
+
+    if (!order) {
+      return res.status(404).json({ error: 'Encomenda não encontrada.' });
+    }
+
+    const movements = Object.entries(CHEST_CONFIG).flatMap(([chestKey, config]) => {
+      const rows = db.prepare(`
+        SELECT ${config.logsTable}.*, users.username AS actor_username
+        FROM ${config.logsTable}
+        LEFT JOIN users ON users.id = ${config.logsTable}.actor_id
+        WHERE ${config.logsTable}.order_id = ?
+      `).all(id);
+
+      return rows.map((row) => ({
+        chestKey,
+        chestLabel: config.label,
+        changeType: row.change_type,
+        itemName: row.item_name,
+        quantity: row.quantity,
+        reason: row.reason || null,
+        counterpartLabel: row.counterpart_label || null,
+        transferGroup: row.transfer_group || null,
+        actorUsername: row.actor_username || 'Sistema',
+        createdAt: row.created_at
+      }));
+    });
+
+    movements.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+
+    res.json({ movements });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/orders/crafting', requireAuth, requireAdmin, (req, res, next) => {
   try {
     const title = cleanText(req.body.title, 3, 100);
@@ -1792,6 +1971,12 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
       return res.status(400).json({ error: 'Movimento de Baú 113 inválido.' });
     }
 
+    const justification = resolveMovementJustification(req.body);
+
+    if (justification.error) {
+      return res.status(400).json({ error: justification.error });
+    }
+
     const item = db.prepare(`
       SELECT id, name, quantity, updated_at
       FROM chest_items
@@ -1819,9 +2004,9 @@ app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
     `).run(newQuantity, id);
 
     db.prepare(`
-      INSERT INTO chest_logs (item_id, item_name, change_type, quantity, actor_id)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, item.name, action, quantity, req.user.id);
+      INSERT INTO chest_logs (item_id, item_name, change_type, quantity, actor_id, reason, order_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
 
     const updated = db.prepare(`
       SELECT id, name, quantity, updated_at
@@ -1888,6 +2073,155 @@ createChestRoutes(
   'orders_chest_logs',
   requireAdmin
 );
+
+app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
+  try {
+    const fromKey = typeof req.body.fromChest === 'string' ? req.body.fromChest : '';
+    const toKey = typeof req.body.toChest === 'string' ? req.body.toChest : '';
+    const from = CHEST_CONFIG[fromKey];
+    const to = CHEST_CONFIG[toKey];
+
+    if (!from || !to || fromKey === toKey) {
+      return res.status(400).json({ error: 'Baú de origem ou de destino inválido.' });
+    }
+
+    if (!from.canAccess(req.user.role) || !to.canAccess(req.user.role)) {
+      return res.status(403).json({
+        error: `Não tens permissões sobre o ${from.label} e/ou o ${to.label} para fazer esta transferência.`
+      });
+    }
+
+    const name = cleanText(req.body.itemName, 2, 80);
+    const quantity = ensureInteger(req.body.quantity, 1, 1000000000);
+
+    if (!name || !quantity) {
+      return res.status(400).json({ error: 'Indica um item e uma quantidade válidos.' });
+    }
+
+    const reasonResult = cleanReason(req.body.reason, { required: true });
+
+    if (reasonResult.error) {
+      return res.status(400).json({
+        error: reasonResult.tooShortOrLong
+          ? 'A justificação deve ter entre 3 e 300 caracteres.'
+          : 'É obrigatório indicar uma justificação para transferir stock entre baús.'
+      });
+    }
+
+    let orderId = null;
+
+    if (req.body.orderId !== undefined && req.body.orderId !== null && req.body.orderId !== '') {
+      orderId = ensureInteger(req.body.orderId, 1);
+
+      if (!orderId || !db.prepare('SELECT id FROM orders WHERE id = ?').get(orderId)) {
+        return res.status(400).json({ error: 'A encomenda associada é inválida ou não existe.' });
+      }
+    }
+
+    const sourceItem = db.prepare(`
+      SELECT id, name, quantity
+      FROM ${from.itemsTable}
+      WHERE name = ?
+    `).get(name);
+
+    if (!sourceItem) {
+      return res.status(404).json({ error: `O item "${name}" não existe no ${from.label}.` });
+    }
+
+    if (sourceItem.quantity < quantity) {
+      return res.status(400).json({
+        error: `Não existe quantidade suficiente de "${sourceItem.name}" no ${from.label}.`
+      });
+    }
+
+    const transferGroup = crypto.randomUUID();
+
+    const performTransfer = db.transaction(() => {
+      db.prepare(`
+        UPDATE ${from.itemsTable}
+        SET quantity = quantity - ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(quantity, sourceItem.id);
+
+      let destItem = db.prepare(`
+        SELECT id, name, quantity
+        FROM ${to.itemsTable}
+        WHERE name = ?
+      `).get(sourceItem.name);
+
+      if (!destItem) {
+        const inserted = db.prepare(`
+          INSERT INTO ${to.itemsTable} (name, quantity)
+          VALUES (?, 0)
+        `).run(sourceItem.name);
+
+        destItem = { id: inserted.lastInsertRowid, name: sourceItem.name, quantity: 0 };
+      }
+
+      db.prepare(`
+        UPDATE ${to.itemsTable}
+        SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(quantity, destItem.id);
+
+      db.prepare(`
+        INSERT INTO ${from.logsTable}
+          (item_id, item_name, change_type, quantity, actor_id, reason, order_id, transfer_group, counterpart_label)
+        VALUES (?, ?, 'transfer_out', ?, ?, ?, ?, ?, ?)
+      `).run(
+        sourceItem.id,
+        sourceItem.name,
+        quantity,
+        req.user.id,
+        reasonResult.reason,
+        orderId,
+        transferGroup,
+        to.label
+      );
+
+      db.prepare(`
+        INSERT INTO ${to.logsTable}
+          (item_id, item_name, change_type, quantity, actor_id, reason, order_id, transfer_group, counterpart_label)
+        VALUES (?, ?, 'transfer_in', ?, ?, ?, ?, ?, ?)
+      `).run(
+        destItem.id,
+        sourceItem.name,
+        quantity,
+        req.user.id,
+        reasonResult.reason,
+        orderId,
+        transferGroup,
+        from.label
+      );
+    });
+
+    performTransfer();
+
+    logAction(
+      req.user.id,
+      'chest_transfer',
+      `${sourceItem.name} (${quantity}) de ${from.label} para ${to.label}`
+    );
+
+    const fromItem = db.prepare(`
+      SELECT id, name, quantity, updated_at FROM ${from.itemsTable} WHERE id = ?
+    `).get(sourceItem.id);
+
+    const toItem = db.prepare(`
+      SELECT id, name, quantity, updated_at FROM ${to.itemsTable} WHERE name = ?
+    `).get(sourceItem.name);
+
+    res.status(201).json({
+      transferGroup,
+      fromChest: fromKey,
+      toChest: toKey,
+      fromItem: publicChestItem(fromItem),
+      toItem: publicChestItem(toItem)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
