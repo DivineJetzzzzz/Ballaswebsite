@@ -1942,6 +1942,11 @@ app.delete('/api/catalog/:id', requireAuth, requireAdmin, (req, res, next) => {
   }
 });
 app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req, res) => {
+  // A calculadora de materiais pendentes soma os materiais de TODAS as
+  // encomendas pendentes que tenham uma receita associada (order_material_totals),
+  // independentemente do método de pagamento. Mesmo pedidos pagos a dinheiro
+  // limpo/sujo consomem materiais para serem fabricados, por isso entram
+  // aqui na mesma para simular os valores em falta.
   const materials = db.prepare(`
     SELECT
       order_material_totals.material_name AS name,
@@ -1949,7 +1954,6 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     FROM order_material_totals
     INNER JOIN orders ON orders.id = order_material_totals.order_id
     WHERE orders.status = 'pending'
-      AND orders.payment_method = 'materials'
     GROUP BY order_material_totals.material_name
     ORDER BY order_material_totals.material_name COLLATE NOCASE ASC
   `).all();
@@ -1958,7 +1962,7 @@ app.get('/api/orders/pending-materials-summary', requireAuth, requireAdmin, (req
     SELECT COUNT(*) AS count
     FROM orders
     WHERE status = 'pending'
-      AND payment_method = 'materials'
+      AND id IN (SELECT DISTINCT order_id FROM order_material_totals)
   `).get().count;
 
   res.json({
@@ -2636,19 +2640,22 @@ app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res,
 
       selections.push({ item, quantity: publicItem.quantity });
 
-      if (paymentMethod === 'materials') {
-        const ingredients = ingredientsQuery.all(item.id);
+      // Independentemente do método de pagamento (materiais, dinheiro limpo
+      // ou dinheiro sujo), a receita do item já define os materiais
+      // necessários para o fabricar. Calculamos sempre os totais para que a
+      // calculadora de materiais pendentes simule os valores em falta,
+      // mesmo em pedidos pagos a dinheiro.
+      const ingredients = ingredientsQuery.all(item.id);
 
-        for (const ingredient of ingredients) {
-          const total = materialTotals.get(ingredient.id) || {
-            materialId: ingredient.id,
-            name: ingredient.name,
-            quantity: 0
-          };
+      for (const ingredient of ingredients) {
+        const total = materialTotals.get(ingredient.id) || {
+          materialId: ingredient.id,
+          name: ingredient.name,
+          quantity: 0
+        };
 
-          total.quantity += ingredient.quantity * publicItem.quantity;
-          materialTotals.set(ingredient.id, total);
-        }
+        total.quantity += ingredient.quantity * publicItem.quantity;
+        materialTotals.set(ingredient.id, total);
       }
     }
 
@@ -2687,7 +2694,7 @@ app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res,
         );
       }
 
-      if (paymentMethod === 'materials' && materialTotals.size) {
+      if (materialTotals.size) {
         const insertMaterial = db.prepare(`
           INSERT INTO order_material_totals (order_id, material_id, material_name, quantity)
           VALUES (?, ?, ?, ?)
