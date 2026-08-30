@@ -124,6 +124,10 @@ function isAdminOrResidentChief() {
   return currentUser?.role === 'admin' || currentUser?.role === 'resident_chief';
 }
 
+function canViewOrders() {
+  return currentUser?.role === 'admin' || currentUser?.role === 'officials' || currentUser?.role === 'resident_chief';
+}
+
 function getRoleLabel(role = currentUser?.role) {
   if (role === 'admin') return 'Administrador';
   if (role === 'officials') return 'Oficial';
@@ -142,6 +146,10 @@ function setAdminVisibility() {
 
   document.querySelectorAll('.admin-or-resident-chief').forEach((element) => {
     element.classList.toggle('hidden', !isAdminOrResidentChief());
+  });
+
+  document.querySelectorAll('.orders-viewer').forEach((element) => {
+    element.classList.toggle('hidden', !canViewOrders());
   });
 }
 
@@ -1109,7 +1117,8 @@ document.querySelectorAll('.nav').forEach((button) => {
   button.addEventListener('click', () => {
     if ((button.classList.contains('admin-only') && !isAdmin()) ||
         (button.classList.contains('admin-or-officials') && !isAdminOrOfficials()) ||
-        (button.classList.contains('admin-or-resident-chief') && !isAdminOrResidentChief())) {
+        (button.classList.contains('admin-or-resident-chief') && !isAdminOrResidentChief()) ||
+        (button.classList.contains('orders-viewer') && !canViewOrders())) {
       return;
     }
     showPage(button.dataset.page);
