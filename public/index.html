@@ -58,6 +58,7 @@
         <button class="nav admin-or-officials" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
         <button class="nav admin-only" data-page="ordersChest" type="button">▣ <span>Baú Encomendas</span></button>
         <button class="nav orders-viewer" data-page="orders" type="button">☷ <span>Encomendas</span></button>
+        <button class="nav orders-viewer" data-page="ammunationOrders" type="button">▤ <span>Encomendas Ammunation</span></button>
         <button class="nav admin-only" data-page="publicOrders" type="button">✉ <span>Pedidos Públicos</span></button>
         <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
         <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
@@ -316,11 +317,10 @@
           <div class="panel-head">
             <div>
               <h3>Encomendas</h3>
-              <p>Cria pedidos de crafting ou encomendas Ammunation.</p>
+              <p>Cria pedidos de crafting e acompanha o seu estado.</p>
             </div>
             <div class="actions">
               <button id="openOrderDialog" class="btn primary admin-only" type="button">+ Encomenda de crafting</button>
-              <button id="openAmmunationDialog" class="btn ammunation-btn admin-only" type="button">+ Ammunation</button>
             </div>
           </div>
 
@@ -338,6 +338,54 @@
                 </tr>
               </thead>
               <tbody id="ordersTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="ammunationOrdersPage" class="hidden orders-viewer">
+        <section class="panel admin-only">
+          <div class="panel-head">
+            <div>
+              <h3>Dinheiro das encomendas pendentes</h3>
+              <p>Soma total de dinheiro limpo e sujo por receber das encomendas Ammunation pendentes.</p>
+            </div>
+
+            <button id="refreshPendingMoney" class="btn secondary" type="button">
+              Atualizar cálculo
+            </button>
+          </div>
+
+          <div id="pendingMoneySummary" class="pending-materials-summary">
+            A carregar cálculo...
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Encomendas Ammunation</h3>
+              <p>Encomendas pagas a dinheiro, limpo ou sujo.</p>
+            </div>
+            <div class="actions">
+              <button id="openAmmunationDialog" class="btn ammunation-btn admin-only" type="button">+ Ammunation</button>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Encomenda</th>
+                  <th>Criada por</th>
+                  <th>Pagamento</th>
+                  <th>Estado</th>
+                  <th>Criada em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="ammunationOrdersTable"></tbody>
             </table>
           </div>
         </section>
