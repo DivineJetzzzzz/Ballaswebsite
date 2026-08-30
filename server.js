@@ -195,7 +195,10 @@ const usersTableSql = db.prepare(`
   WHERE type = 'table' AND name = 'users'
 `).get()?.sql || '';
 
-if (!usersTableSql.includes('resident_chief')) {
+if (
+  !usersTableSql.includes('resident_chief') ||
+  !usersTableSql.includes('officials')
+) {
   db.pragma('foreign_keys = OFF');
 
   db.transaction(() => {
@@ -226,9 +229,11 @@ if (!usersTableSql.includes('resident_chief')) {
         username,
         password_hash,
         CASE
-          WHEN role = 'admin' THEN 'admin'
-          ELSE 'resident_chief'
-        END,
+        WHEN role = 'admin' THEN 'admin'
+       WHEN role = 'officials' THEN 'officials'
+       WHEN role = 'resident_chief' THEN 'resident_chief'
+       ELSE 'resident_chief'
+      END,
         active,
         created_at,
         updated_at
