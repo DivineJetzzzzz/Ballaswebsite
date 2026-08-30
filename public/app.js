@@ -1111,6 +1111,7 @@ $('#logoutButton').addEventListener('click', async () => {
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
   $('#loginForm').reset();
+  closeMobileMenu();
 });
 
 document.querySelectorAll('.nav').forEach((button) => {
@@ -1122,7 +1123,28 @@ document.querySelectorAll('.nav').forEach((button) => {
       return;
     }
     showPage(button.dataset.page);
+    closeMobileMenu();
   });
+});
+
+function openMobileMenu() {
+  document.querySelector('.app > aside')?.classList.add('open');
+  $('#mobileMenuOverlay')?.classList.add('open');
+}
+
+function closeMobileMenu() {
+  document.querySelector('.app > aside')?.classList.remove('open');
+  $('#mobileMenuOverlay')?.classList.remove('open');
+}
+
+$('#mobileMenuToggle')?.addEventListener('click', openMobileMenu);
+$('#closeMobileMenu')?.addEventListener('click', closeMobileMenu);
+$('#mobileMenuOverlay')?.addEventListener('click', closeMobileMenu);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeMobileMenu();
+  }
 });
 
 $('#openPasswordDialog').addEventListener('click', () => {
