@@ -346,6 +346,43 @@ if (ordersTableSql.includes('ON DELETE RESTRICT')) {
   db.pragma('foreign_keys = ON');
 }
 
+// A migração acima (renomear "orders" para recriar sem ON DELETE RESTRICT)
+// tem um efeito secundário do SQLite: ao renomear uma tabela, as foreign
+// keys de OUTRAS tabelas que já apontavam para ela são reescritas
+// automaticamente para o nome novo (orders_old). Como a orders_old foi
+// depois apagada, estas tabelas ficaram a referenciar uma tabela
+// inexistente, partindo qualquer INSERT/UPDATE nelas. Corrige-se aqui o
+// texto do schema diretamente e força-se o SQLite a reler o esquema.
+function fixStaleForeignKey(table, staleTarget, correctTarget) {
+  const row = db.prepare(`
+    SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?
+  `).get(table);
+
+  if (!row || !row.sql.includes(`REFERENCES ${staleTarget}(`)) return;
+
+  const fixedSql = row.sql.split(`REFERENCES ${staleTarget}(`).join(`REFERENCES ${correctTarget}(`);
+
+  db.pragma('foreign_keys = OFF');
+  db.pragma('writable_schema = ON');
+
+  db.prepare(`
+    UPDATE sqlite_master
+    SET sql = ?
+    WHERE type = 'table' AND name = ?
+  `).run(fixedSql, table);
+
+  db.pragma('writable_schema = OFF');
+
+  const schemaVersion = db.pragma('schema_version', { simple: true });
+  db.pragma(`schema_version = ${schemaVersion + 1}`);
+
+  db.pragma('foreign_keys = ON');
+}
+
+['order_recipe_items', 'order_material_totals', 'public_orders'].forEach((table) => {
+  fixStaleForeignKey(table, 'orders_old', 'orders');
+});
+
 // Migra as tabelas de logs dos baús para suportarem transferências entre
 // baús, justificação obrigatória e associação a encomendas, preservando
 // o histórico já existente.
