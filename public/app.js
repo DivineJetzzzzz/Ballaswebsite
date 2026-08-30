@@ -29,6 +29,8 @@ let ordersChestAction = null;
 let chestTransferTarget = null;
 let resetPasswordTarget = null;
 let auditLogs = [];
+let publicOrders = [];
+let publicOrderDetailId = null;
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
@@ -207,6 +209,7 @@ function showPage(name) {
     officialsChest: ['Baú Oficiais', 'Stock do baú dos oficiais.'],
     ordersChest: ['Baú Encomendas', 'Stock do baú de encomendas. Acesso exclusivo a administradores.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
+    publicOrders: ['Pedidos Públicos', 'Pedidos recebidos em /encomendar, sem necessidade de conta.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
     users: ['Utilizadores', 'Gestão de acessos e permissões.'],
     auditLogs: ['Registo de atividade', 'Histórico de ações realizadas no sistema.']
@@ -214,7 +217,7 @@ function showPage(name) {
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'recipes', 'users', 'auditLogs'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'publicOrders', 'recipes', 'users', 'auditLogs'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -679,6 +682,57 @@ function renderOrders() {
     : '<tr><td colspan="7">Ainda não existem encomendas.</td></tr>';
 }
 
+function publicOrderStatusLabel(status) {
+  const labels = {
+    pending: 'Pendente',
+    accepted: 'Aceite / Convertido',
+    rejected: 'Rejeitado',
+    archived: 'Arquivado',
+    spam: 'Spam'
+  };
+
+  return labels[status] || status;
+}
+
+function publicOrderStatusClass(status) {
+  const classes = {
+    pending: 'pending',
+    accepted: 'completed',
+    rejected: 'cancelled',
+    archived: 'blocked',
+    spam: 'cancelled'
+  };
+
+  return classes[status] || 'pending';
+}
+
+function renderPublicOrders() {
+  const table = $('#publicOrdersTable');
+
+  if (!table) return;
+
+  table.innerHTML = publicOrders.length
+    ? publicOrders.map((order) => `
+      <tr>
+        <td>#${order.id}</td>
+        <td>
+          <strong>${escapeHTML(order.contactName)}</strong>
+          <span class="order-description">${escapeHTML(order.contactInfo)}</span>
+        </td>
+        <td>${order.itemsCount}</td>
+        <td>${paymentLabel(order.paymentPreference)}</td>
+        <td><span class="badge ${publicOrderStatusClass(order.status)}">${publicOrderStatusLabel(order.status)}</span></td>
+        <td>${formatDate(order.createdAt)}</td>
+        <td>
+          <div class="actions">
+            <button class="btn secondary mini" type="button" data-public-order-view="${order.id}">Ver / Analisar</button>
+          </div>
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="7">Não existem pedidos públicos para este filtro.</td></tr>';
+}
+
 function selectedOrderRecipes() {
   return recipes.filter((recipe) => Number(orderQuantities.get(recipe.id) || 0) > 0);
 }
@@ -1040,6 +1094,120 @@ async function showOrderDetail(id) {
   }
 }
 
+function renderPublicOrderDetailActions(order) {
+  const actions = $('#publicOrderDetailActions');
+
+  if (!actions) return;
+
+  if (order.status === 'accepted') {
+    actions.innerHTML = order.convertedOrder
+      ? `<span class="order-description">Convertido na encomenda #${order.convertedOrder.id} — ${escapeHTML(order.convertedOrder.title)} (${statusLabel(order.convertedOrder.status)}).</span>`
+      : '<span class="order-description">Este pedido já foi convertido numa encomenda interna.</span>';
+    return;
+  }
+
+  actions.innerHTML = `
+    <button class="btn primary" type="button" data-public-order-convert="${order.id}">Aceitar e converter</button>
+    <button class="btn secondary" type="button" data-public-order-reject="${order.id}">Rejeitar</button>
+    <button class="btn secondary" type="button" data-public-order-archive="${order.id}">Arquivar</button>
+    <button class="btn danger" type="button" data-public-order-spam="${order.id}">Marcar spam</button>
+    ${order.status !== 'pending' ? `
+      <button class="btn secondary" type="button" data-public-order-restore="${order.id}">Repor pendente</button>
+    ` : ''}
+  `;
+}
+
+async function showPublicOrderDetail(id) {
+  try {
+    const { publicOrder: order } = await request(`/api/public-orders/${id}`);
+
+    publicOrderDetailId = order.id;
+
+    $('#publicOrderDetailTitle').textContent = `Pedido público #${order.id} — ${order.contactName}`;
+    $('#publicOrderDetailMeta').innerHTML = `
+      Recebido em ${formatDate(order.createdAt)} ·
+      <span class="badge ${publicOrderStatusClass(order.status)}">${publicOrderStatusLabel(order.status)}</span>
+      ${order.reviewedByUsername ? ` · Analisado por ${escapeHTML(order.reviewedByUsername)}` : ''}
+    `;
+
+    $('#publicOrderDetailContent').innerHTML = `
+      <div class="detail-grid">
+        <section class="detail-block">
+          <h4>Contacto RP</h4>
+          <ul class="detail-list">
+            <li><strong>Nome/Contacto:</strong> ${escapeHTML(order.contactName)}</li>
+            <li><strong>Discord / Telefone RP:</strong> ${escapeHTML(order.contactInfo)}</li>
+            <li><strong>Preferência de pagamento:</strong> ${paymentLabel(order.paymentPreference)}</li>
+            <li><strong>Local / prazo de entrega:</strong> ${escapeHTML(order.deliveryInfo)}</li>
+          </ul>
+          ${order.specialRequest ? `
+            <h4 style="margin-top: 14px;">Pedido especial</h4>
+            <p>${escapeHTML(order.specialRequest)}</p>
+          ` : ''}
+          ${order.status === 'rejected' && order.rejectionReason ? `
+            <h4 style="margin-top: 14px;">Motivo da rejeição</h4>
+            <p>${escapeHTML(order.rejectionReason)}</p>
+          ` : ''}
+        </section>
+
+        <section class="detail-block">
+          <h4>Itens pedidos</h4>
+          <ul class="detail-list">
+            ${order.items.length
+              ? order.items.map((item) => `
+                <li>${escapeHTML(item.name)} × ${item.quantity} <small>(${escapeHTML(item.category)})</small></li>
+              `).join('')
+              : '<li>Sem itens.</li>'}
+          </ul>
+        </section>
+      </div>
+    `;
+
+    $('#publicOrderNotes').value = order.internalNotes || '';
+    $('#publicOrderNotesError').textContent = '';
+    $('#publicOrderActionError').textContent = '';
+
+    renderPublicOrderDetailActions(order);
+    $('#publicOrderDetailDialog').showModal();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+async function openConvertPublicOrder(id) {
+  try {
+    const { publicOrder: order } = await request(`/api/public-orders/${id}`);
+
+    if (order.status === 'accepted') {
+      alert('Este pedido já foi convertido numa encomenda interna.');
+      return;
+    }
+
+    $('#convertPublicOrderForm').dataset.publicOrderId = order.id;
+    $('#convertOrderTitle').value = `Pedido público #${order.id} — ${order.contactName}`.slice(0, 100);
+    $('#convertPublicOrderError').textContent = '';
+
+    const preferenceRadio = document.querySelector(
+      `input[name="convertPaymentMethod"][value="${order.paymentPreference}"]`
+    );
+    if (preferenceRadio) preferenceRadio.checked = true;
+
+    $('#convertPublicOrderItems').innerHTML = `
+      <h4>Itens deste pedido</h4>
+      <ul class="detail-list">
+        ${order.items.map((item) => `
+          <li>${escapeHTML(item.name)} × ${item.quantity}</li>
+        `).join('')}
+      </ul>
+    `;
+
+    $('#publicOrderDetailDialog').close();
+    $('#convertPublicOrderDialog').showModal();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
 async function loadUsers() {
   if (!isAdmin()) {
     users = [currentUser];
@@ -1091,6 +1259,23 @@ async function loadOrders() {
   renderOrders();
   renderDashboard();
   await loadPendingMaterialsSummary();
+}
+
+async function loadPublicOrders() {
+  if (!isAdmin()) {
+    publicOrders = [];
+    renderPublicOrders();
+    return;
+  }
+
+  const data = await request('/api/public-orders');
+  const filter = $('#publicOrdersFilter')?.value || 'pending';
+
+  publicOrders = filter === 'all'
+    ? data.publicOrders
+    : data.publicOrders.filter((order) => order.status === filter);
+
+  renderPublicOrders();
 }
 
 async function loadChest() {
@@ -1183,6 +1368,7 @@ async function loadAll() {
     loadUsers(),
     loadCrafting(),
     loadOrders(),
+    loadPublicOrders(),
     loadChest(),
     loadResidentsChest(),
     loadOfficials(),
@@ -1312,6 +1498,8 @@ $('#logoutButton').addEventListener('click', async () => {
   officialsChestLogs = [];
   ordersChestItems = [];
   ordersChestLogs = [];
+  publicOrders = [];
+  publicOrderDetailId = null;
 
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
@@ -1953,6 +2141,153 @@ $('#ammunationForm').addEventListener('submit', async (event) => {
     await loadOrders();
   } catch (error) {
     $('#ammunationError').textContent = error.message;
+  }
+});
+
+$('#refreshPublicOrders')?.addEventListener('click', () => {
+  loadPublicOrders();
+});
+
+$('#publicOrdersFilter')?.addEventListener('change', () => {
+  loadPublicOrders();
+});
+
+$('#closePublicOrderDetailDialog')?.addEventListener('click', () => {
+  $('#publicOrderDetailDialog').close();
+});
+
+$('#publicOrderNotesForm')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  $('#publicOrderNotesError').textContent = '';
+
+  if (!publicOrderDetailId) return;
+
+  try {
+    await request(`/api/public-orders/${publicOrderDetailId}/notes`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes: $('#publicOrderNotes').value })
+    });
+
+    await loadPublicOrders();
+  } catch (error) {
+    $('#publicOrderNotesError').textContent = error.message;
+  }
+});
+
+$('#closeConvertPublicOrderDialog')?.addEventListener('click', () => {
+  $('#convertPublicOrderDialog').close();
+});
+
+$('#convertPublicOrderForm')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  $('#convertPublicOrderError').textContent = '';
+
+  const id = $('#convertPublicOrderForm').dataset.publicOrderId;
+  const paymentMethod = document.querySelector('input[name="convertPaymentMethod"]:checked')?.value || 'materials';
+
+  if (!id) return;
+
+  try {
+    await request(`/api/public-orders/${id}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: $('#convertOrderTitle').value,
+        paymentMethod
+      })
+    });
+
+    $('#convertPublicOrderDialog').close();
+    await Promise.all([loadPublicOrders(), loadOrders()]);
+  } catch (error) {
+    $('#convertPublicOrderError').textContent = error.message;
+  }
+});
+
+document.addEventListener('click', async (event) => {
+  const publicOrderView = event.target.closest('[data-public-order-view]');
+  const publicOrderConvert = event.target.closest('[data-public-order-convert]');
+  const publicOrderReject = event.target.closest('[data-public-order-reject]');
+  const publicOrderArchive = event.target.closest('[data-public-order-archive]');
+  const publicOrderSpam = event.target.closest('[data-public-order-spam]');
+  const publicOrderRestore = event.target.closest('[data-public-order-restore]');
+
+  if (publicOrderView) {
+    await showPublicOrderDetail(Number(publicOrderView.dataset.publicOrderView));
+    return;
+  }
+
+  if (publicOrderConvert) {
+    await openConvertPublicOrder(Number(publicOrderConvert.dataset.publicOrderConvert));
+    return;
+  }
+
+  if (publicOrderReject) {
+    const reason = prompt('Justificação para rejeitar este pedido (obrigatória):');
+
+    if (reason === null) return;
+
+    try {
+      await request(`/api/public-orders/${publicOrderReject.dataset.publicOrderReject}/reject`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reason })
+      });
+
+      $('#publicOrderDetailDialog').close();
+      await loadPublicOrders();
+    } catch (error) {
+      $('#publicOrderActionError').textContent = error.message;
+    }
+
+    return;
+  }
+
+  if (publicOrderArchive) {
+    try {
+      await request(`/api/public-orders/${publicOrderArchive.dataset.publicOrderArchive}/archive`, {
+        method: 'PATCH'
+      });
+
+      $('#publicOrderDetailDialog').close();
+      await loadPublicOrders();
+    } catch (error) {
+      $('#publicOrderActionError').textContent = error.message;
+    }
+
+    return;
+  }
+
+  if (publicOrderSpam) {
+    if (!confirm('Marcar este pedido como spam?')) return;
+
+    try {
+      await request(`/api/public-orders/${publicOrderSpam.dataset.publicOrderSpam}/spam`, {
+        method: 'PATCH'
+      });
+
+      $('#publicOrderDetailDialog').close();
+      await loadPublicOrders();
+    } catch (error) {
+      $('#publicOrderActionError').textContent = error.message;
+    }
+
+    return;
+  }
+
+  if (publicOrderRestore) {
+    try {
+      await request(`/api/public-orders/${publicOrderRestore.dataset.publicOrderRestore}/restore`, {
+        method: 'PATCH'
+      });
+
+      await showPublicOrderDetail(Number(publicOrderRestore.dataset.publicOrderRestore));
+      await loadPublicOrders();
+    } catch (error) {
+      $('#publicOrderActionError').textContent = error.message;
+    }
+
+    return;
   }
 });
 
