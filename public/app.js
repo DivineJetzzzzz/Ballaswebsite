@@ -11,6 +11,8 @@ let residentsChestItems = [];
 let residentsChestLogs = [];
 let officialsChestItems = [];
 let officialsChestLogs = [];
+let ordersChestItems = [];
+let ordersChestLogs = [];
 
 let editingRecipeId = null;
 let orderQuantities = new Map();
@@ -22,6 +24,8 @@ let residentsChestTarget = null;
 let residentsChestAction = null;
 let officialsChestTarget = null;
 let officialsChestAction = null;
+let ordersChestTarget = null;
+let ordersChestAction = null;
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
@@ -108,8 +112,16 @@ function isOfficials() {
   return currentUser?.role === 'officials';
 }
 
+function isResidentChief() {
+  return currentUser?.role === 'resident_chief';
+}
+
 function isAdminOrOfficials() {
   return currentUser?.role === 'admin' || currentUser?.role === 'officials';
+}
+
+function isAdminOrResidentChief() {
+  return currentUser?.role === 'admin' || currentUser?.role === 'resident_chief';
 }
 
 function getRoleLabel(role = currentUser?.role) {
@@ -127,14 +139,19 @@ function setAdminVisibility() {
   document.querySelectorAll('.admin-or-officials').forEach((element) => {
     element.classList.toggle('hidden', !isAdminOrOfficials());
   });
+
+  document.querySelectorAll('.admin-or-resident-chief').forEach((element) => {
+    element.classList.toggle('hidden', !isAdminOrResidentChief());
+  });
 }
 
 function showPage(name) {
   const meta = {
     dashboard: ['Visão geral', 'Resumo do teu painel privado.'],
-    chest: ['Baú', 'Stock da organização.'],
+    chest: ['Baú 113', 'Stock da organização.'],
     residentsChest: ['Baú Moradores', 'Stock do baú dos moradores.'],
     officialsChest: ['Baú Oficiais', 'Stock do baú dos oficiais.'],
+    ordersChest: ['Baú Encomendas', 'Stock do baú de encomendas. Acesso exclusivo a administradores.'],
     orders: ['Encomendas', 'Cria pedidos e acompanha o seu estado.'],
     recipes: ['Receitas', 'Configura itens, materiais e custos.'],
     users: ['Utilizadores', 'Gestão de acessos e permissões.']
@@ -142,7 +159,7 @@ function showPage(name) {
 
   const safeName = meta[name] ? name : 'dashboard';
 
-  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'orders', 'recipes', 'users'].forEach((page) => {
+  ['dashboard', 'chest', 'residentsChest', 'officialsChest', 'ordersChest', 'orders', 'recipes', 'users'].forEach((page) => {
     $(`#${page}Page`)?.classList.toggle('hidden', page !== safeName);
   });
 
@@ -345,7 +362,7 @@ function renderChest() {
           </td>
         </tr>
       `).join('')
-      : '<tr><td colspan="4">O Baú ainda não tem itens.</td></tr>';
+      : '<tr><td colspan="4">O Baú 113 ainda não tem itens.</td></tr>';
   }
 
   if (logsTable) {
@@ -456,6 +473,53 @@ function renderOfficials() {
 
     logsTable.innerHTML = officialsChestLogs.length
       ? officialsChestLogs.map((log) => `
+        <tr>
+          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td>${escapeHTML(log.itemName)}</td>
+          <td>${log.quantity}</td>
+          <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${formatDate(log.createdAt)}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+  }
+}
+
+function renderOrdersChest() {
+  const table = $('#ordersChestTable');
+  const logsTable = $('#ordersChestLogsTable');
+
+  if (table) {
+    table.innerHTML = ordersChestItems.length
+      ? ordersChestItems.map((item) => `
+        <tr>
+          <td class="username">${escapeHTML(item.name)}</td>
+          <td class="chest-quantity">${item.quantity}</td>
+          <td>${formatDate(item.updatedAt)}</td>
+          <td>
+            ${isAdmin() ? `
+              <div class="actions">
+                <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
+                <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
+                <button class="btn danger mini" type="button" data-orders-chest-delete="${item.id}">Apagar</button>
+              </div>
+            ` : '—'}
+          </td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="4">O Baú de Encomendas ainda não tem itens.</td></tr>';
+  }
+
+  if (logsTable) {
+    const labels = {
+      add: 'Entrada',
+      remove: 'Saída',
+      create: 'Criado',
+      delete: 'Apagado'
+    };
+
+    logsTable.innerHTML = ordersChestLogs.length
+      ? ordersChestLogs.map((log) => `
         <tr>
           <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
           <td>${escapeHTML(log.itemName)}</td>
@@ -727,6 +791,27 @@ function openOfficialsMovement(id, action) {
   $('#officialsChestActionDialog').showModal();
 }
 
+function openOrdersChestMovement(id, action) {
+  const item = ordersChestItems.find((entry) => entry.id === id);
+
+  if (!item) return;
+
+  ordersChestTarget = item;
+  ordersChestAction = action;
+
+  $('#ordersChestActionTitle').textContent = action === 'add'
+    ? `Adicionar a ${item.name}`
+    : `Retirar de ${item.name}`;
+
+  $('#ordersChestActionText').textContent = action === 'add'
+    ? `Quantidade atual: ${item.quantity}.`
+    : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
+
+  $('#ordersChestActionQuantity').value = '';
+  $('#ordersChestActionError').textContent = '';
+  $('#ordersChestActionDialog').showModal();
+}
+
 async function showOrderDetail(id) {
   try {
     const { order } = await request(`/api/orders/${id}`);
@@ -788,6 +873,14 @@ async function loadUsers() {
 }
 
 async function loadCrafting() {
+  if (!isAdmin()) {
+    materials = [];
+    recipes = [];
+    renderMaterials();
+    renderRecipes();
+    return;
+  }
+
   const [materialsData, recipesData] = await Promise.all([
     request('/api/materials'),
     request('/api/catalog')
@@ -805,6 +898,12 @@ async function loadCrafting() {
 }
 
 async function loadOrders() {
+  if (!isAdminOrOfficials()) {
+    orders = [];
+    renderOrders();
+    return;
+  }
+
   const data = await request('/api/orders');
   orders = data.orders;
   renderOrders();
@@ -812,6 +911,13 @@ async function loadOrders() {
 }
 
 async function loadChest() {
+  if (!isAdmin()) {
+    chestItems = [];
+    chestLogs = [];
+    renderChest();
+    return;
+  }
+
   const data = await request('/api/chest');
   chestItems = data.items;
   chestLogs = data.logs;
@@ -819,6 +925,13 @@ async function loadChest() {
 }
 
 async function loadResidentsChest() {
+  if (!isAdminOrResidentChief()) {
+    residentsChestItems = [];
+    residentsChestLogs = [];
+    renderResidentsChest();
+    return;
+  }
+
   const data = await request('/api/residents-chest');
   residentsChestItems = data.items;
   residentsChestLogs = data.logs;
@@ -826,10 +939,31 @@ async function loadResidentsChest() {
 }
 
 async function loadOfficials() {
+  if (!isAdminOrOfficials()) {
+    officialsChestItems = [];
+    officialsChestLogs = [];
+    renderOfficials();
+    return;
+  }
+
   const data = await request('/api/officials-chest');
   officialsChestItems = data.items;
   officialsChestLogs = data.logs;
   renderOfficials();
+}
+
+async function loadOrdersChest() {
+  if (!isAdmin()) {
+    ordersChestItems = [];
+    ordersChestLogs = [];
+    renderOrdersChest();
+    return;
+  }
+
+  const data = await request('/api/orders-chest');
+  ordersChestItems = data.items;
+  ordersChestLogs = data.logs;
+  renderOrdersChest();
 }
 
 async function loadAll() {
@@ -839,7 +973,8 @@ async function loadAll() {
     loadOrders(),
     loadChest(),
     loadResidentsChest(),
-    loadOfficials()
+    loadOfficials(),
+    loadOrdersChest()
   ]);
 }
 
@@ -962,6 +1097,8 @@ $('#logoutButton').addEventListener('click', async () => {
   residentsChestLogs = [];
   officialsChestItems = [];
   officialsChestLogs = [];
+  ordersChestItems = [];
+  ordersChestLogs = [];
 
   $('#appView').classList.add('hidden');
   $('#loginView').classList.remove('hidden');
@@ -971,7 +1108,8 @@ $('#logoutButton').addEventListener('click', async () => {
 document.querySelectorAll('.nav').forEach((button) => {
   button.addEventListener('click', () => {
     if ((button.classList.contains('admin-only') && !isAdmin()) ||
-        (button.classList.contains('admin-or-officials') && !isAdminOrOfficials())) {
+        (button.classList.contains('admin-or-officials') && !isAdminOrOfficials()) ||
+        (button.classList.contains('admin-or-resident-chief') && !isAdminOrResidentChief())) {
       return;
     }
     showPage(button.dataset.page);
@@ -1327,6 +1465,61 @@ $('#officialsChestActionForm').addEventListener('submit', async (event) => {
   }
 });
 
+$('#openOrdersChestCreateDialog').addEventListener('click', () => {
+  $('#ordersChestCreateForm').reset();
+  $('#ordersChestCreateError').textContent = '';
+  $('#ordersChestCreateDialog').showModal();
+});
+
+$('#closeOrdersChestCreateDialog').addEventListener('click', () => {
+  $('#ordersChestCreateDialog').close();
+});
+
+$('#ordersChestCreateForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  $('#ordersChestCreateError').textContent = '';
+
+  try {
+    await request('/api/orders-chest', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('#ordersChestItemName').value })
+    });
+
+    $('#ordersChestCreateDialog').close();
+    await loadOrdersChest();
+  } catch (error) {
+    $('#ordersChestCreateError').textContent = error.message;
+  }
+});
+
+$('#closeOrdersChestActionDialog').addEventListener('click', () => {
+  $('#ordersChestActionDialog').close();
+});
+
+$('#ordersChestActionForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!ordersChestTarget || !ordersChestAction) return;
+
+  $('#ordersChestActionError').textContent = '';
+
+  try {
+    await request(`/api/orders-chest/${ordersChestTarget.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        action: ordersChestAction,
+        quantity: $('#ordersChestActionQuantity').value
+      })
+    });
+
+    $('#ordersChestActionDialog').close();
+    await loadOrdersChest();
+  } catch (error) {
+    $('#ordersChestActionError').textContent = error.message;
+  }
+});
+
 $('#openOrderDialog').addEventListener('click', openOrderBuilder);
 
 $('#closeOrderDialog').addEventListener('click', () => {
@@ -1559,7 +1752,7 @@ document.addEventListener('click', async (event) => {
     if (chestDelete) {
       const id = Number(chestDelete.dataset.chestDelete);
 
-      if (!confirm('Queres apagar este item do Baú?')) return;
+      if (!confirm('Queres apagar este item do Baú 113?')) return;
 
       await request(`/api/chest/${id}`, { method: 'DELETE' });
       await loadChest();
@@ -1611,6 +1804,30 @@ document.addEventListener('click', async (event) => {
 
       await request(`/api/officials-chest/${id}`, { method: 'DELETE' });
       await loadOfficials();
+      return;
+    }
+
+    const ordersChestAdd = event.target.closest('[data-orders-chest-add]');
+    const ordersChestRemove = event.target.closest('[data-orders-chest-remove]');
+    const ordersChestDelete = event.target.closest('[data-orders-chest-delete]');
+
+    if (ordersChestAdd) {
+      openOrdersChestMovement(Number(ordersChestAdd.dataset.ordersChestAdd), 'add');
+      return;
+    }
+
+    if (ordersChestRemove) {
+      openOrdersChestMovement(Number(ordersChestRemove.dataset.ordersChestRemove), 'remove');
+      return;
+    }
+
+    if (ordersChestDelete) {
+      const id = Number(ordersChestDelete.dataset.ordersChestDelete);
+
+      if (!confirm('Queres apagar este item do Baú de Encomendas?')) return;
+
+      await request(`/api/orders-chest/${id}`, { method: 'DELETE' });
+      await loadOrdersChest();
       return;
     }
 
