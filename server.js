@@ -351,37 +351,150 @@ if (ordersTableSql.includes('ON DELETE RESTRICT')) {
 // keys de OUTRAS tabelas que já apontavam para ela são reescritas
 // automaticamente para o nome novo (orders_old). Como a orders_old foi
 // depois apagada, estas tabelas ficaram a referenciar uma tabela
-// inexistente, partindo qualquer INSERT/UPDATE nelas. Corrige-se aqui o
-// texto do schema diretamente e força-se o SQLite a reler o esquema.
-function fixStaleForeignKey(table, staleTarget, correctTarget) {
+// inexistente, partindo qualquer INSERT/UPDATE nelas. Corrige-se recriando
+// cada tabela (mesmo padrão usado acima para "orders"), preservando todos
+// os dados existentes.
+
+function tableReferencesStaleOrders(table) {
   const row = db.prepare(`
     SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?
   `).get(table);
 
-  if (!row || !row.sql.includes(`REFERENCES ${staleTarget}(`)) return;
+  return Boolean(row && row.sql.includes('REFERENCES orders_old('));
+}
 
-  const fixedSql = row.sql.split(`REFERENCES ${staleTarget}(`).join(`REFERENCES ${correctTarget}(`);
-
+if (tableReferencesStaleOrders('order_recipe_items')) {
   db.pragma('foreign_keys = OFF');
-  db.pragma('writable_schema = ON');
 
-  db.prepare(`
-    UPDATE sqlite_master
-    SET sql = ?
-    WHERE type = 'table' AND name = ?
-  `).run(fixedSql, table);
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE order_recipe_items RENAME TO order_recipe_items_old;
 
-  db.pragma('writable_schema = OFF');
+      CREATE TABLE order_recipe_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        catalog_item_id INTEGER,
+        item_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        unit_price INTEGER NOT NULL DEFAULT 0,
+        clean_price INTEGER NOT NULL DEFAULT 0,
+        dirty_price INTEGER NOT NULL DEFAULT 0,
+        quantity INTEGER NOT NULL CHECK(quantity > 0),
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL
+      );
 
-  const schemaVersion = db.pragma('schema_version', { simple: true });
-  db.pragma(`schema_version = ${schemaVersion + 1}`);
+      INSERT INTO order_recipe_items (
+        id, order_id, catalog_item_id, item_name, category,
+        unit_price, clean_price, dirty_price, quantity
+      )
+      SELECT
+        id, order_id, catalog_item_id, item_name, category,
+        unit_price, clean_price, dirty_price, quantity
+      FROM order_recipe_items_old;
+
+      DROP TABLE order_recipe_items_old;
+    `);
+  })();
 
   db.pragma('foreign_keys = ON');
 }
 
-['order_recipe_items', 'order_material_totals', 'public_orders'].forEach((table) => {
-  fixStaleForeignKey(table, 'orders_old', 'orders');
-});
+if (tableReferencesStaleOrders('order_material_totals')) {
+  db.pragma('foreign_keys = OFF');
+
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE order_material_totals RENAME TO order_material_totals_old;
+
+      CREATE TABLE order_material_totals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        material_id INTEGER,
+        material_name TEXT NOT NULL,
+        quantity INTEGER NOT NULL CHECK(quantity > 0),
+        FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (material_id) REFERENCES materials(id) ON DELETE SET NULL,
+        UNIQUE(order_id, material_name)
+      );
+
+      INSERT INTO order_material_totals (id, order_id, material_id, material_name, quantity)
+      SELECT id, order_id, material_id, material_name, quantity
+      FROM order_material_totals_old;
+
+      DROP TABLE order_material_totals_old;
+    `);
+  })();
+
+  db.pragma('foreign_keys = ON');
+}
+
+// public_orders também referenciava orders(id) (converted_order_id), por
+// isso sofreu o mesmo problema. Recriá-la tem, por sua vez, o mesmo efeito
+// secundário sobre public_order_items (que referencia public_orders(id)),
+// por isso corrige-se as duas juntas.
+if (tableReferencesStaleOrders('public_orders')) {
+  db.pragma('foreign_keys = OFF');
+
+  db.transaction(() => {
+    db.exec(`
+      ALTER TABLE public_orders RENAME TO public_orders_old;
+
+      CREATE TABLE public_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        contact_name TEXT NOT NULL,
+        contact_info TEXT NOT NULL DEFAULT '',
+        payment_preference TEXT NOT NULL CHECK(payment_preference IN ('materials', 'clean', 'dirty')) DEFAULT 'materials',
+        payment_preferences TEXT NOT NULL DEFAULT '[]',
+        delivery_info TEXT NOT NULL DEFAULT '',
+        special_request TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'rejected', 'archived', 'spam')) DEFAULT 'pending',
+        rejection_reason TEXT,
+        internal_notes TEXT,
+        converted_order_id INTEGER,
+        reviewed_by INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (converted_order_id) REFERENCES orders(id) ON DELETE SET NULL,
+        FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+      );
+
+      INSERT INTO public_orders (
+        id, contact_name, contact_info, payment_preference, payment_preferences,
+        delivery_info, special_request, status, rejection_reason, internal_notes,
+        converted_order_id, reviewed_by, created_at, updated_at
+      )
+      SELECT
+        id, contact_name, contact_info, payment_preference, payment_preferences,
+        delivery_info, special_request, status, rejection_reason, internal_notes,
+        converted_order_id, reviewed_by, created_at, updated_at
+      FROM public_orders_old;
+
+      DROP TABLE public_orders_old;
+
+      ALTER TABLE public_order_items RENAME TO public_order_items_old;
+
+      CREATE TABLE public_order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        public_order_id INTEGER NOT NULL,
+        catalog_item_id INTEGER,
+        item_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        quantity INTEGER NOT NULL CHECK(quantity > 0),
+        FOREIGN KEY (public_order_id) REFERENCES public_orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL
+      );
+
+      INSERT INTO public_order_items (id, public_order_id, catalog_item_id, item_name, category, quantity)
+      SELECT id, public_order_id, catalog_item_id, item_name, category, quantity
+      FROM public_order_items_old;
+
+      DROP TABLE public_order_items_old;
+    `);
+  })();
+
+  db.pragma('foreign_keys = ON');
+}
 
 // Migra as tabelas de logs dos baús para suportarem transferências entre
 // baús, justificação obrigatória e associação a encomendas, preservando
