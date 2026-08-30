@@ -109,6 +109,14 @@ function paymentLabel(method) {
   return labels[method] || method;
 }
 
+function paymentPreferencesLabel(methods) {
+  const list = Array.isArray(methods) ? methods : [methods];
+
+  return list.length
+    ? list.map((method) => paymentLabel(method)).join(' + ')
+    : '—';
+}
+
 function isAdmin() {
   return currentUser?.role === 'admin';
 }
@@ -720,7 +728,7 @@ function renderPublicOrders() {
           <span class="order-description">${escapeHTML(order.contactInfo)}</span>
         </td>
         <td>${order.itemsCount}</td>
-        <td>${paymentLabel(order.paymentPreference)}</td>
+        <td>${paymentPreferencesLabel(order.paymentPreferences)}</td>
         <td><span class="badge ${publicOrderStatusClass(order.status)}">${publicOrderStatusLabel(order.status)}</span></td>
         <td>${formatDate(order.createdAt)}</td>
         <td>
@@ -1137,7 +1145,7 @@ async function showPublicOrderDetail(id) {
           <ul class="detail-list">
             <li><strong>Nome/Contacto:</strong> ${escapeHTML(order.contactName)}</li>
             <li><strong>Discord / Telefone RP:</strong> ${escapeHTML(order.contactInfo)}</li>
-            <li><strong>Preferência de pagamento:</strong> ${paymentLabel(order.paymentPreference)}</li>
+            <li><strong>Preferência de pagamento:</strong> ${paymentPreferencesLabel(order.paymentPreferences)}</li>
             <li><strong>Local / prazo de entrega:</strong> ${escapeHTML(order.deliveryInfo)}</li>
           </ul>
           ${order.specialRequest ? `
@@ -1188,7 +1196,7 @@ async function openConvertPublicOrder(id) {
     $('#convertPublicOrderError').textContent = '';
 
     const preferenceRadio = document.querySelector(
-      `input[name="convertPaymentMethod"][value="${order.paymentPreference}"]`
+      `input[name="convertPaymentMethod"][value="${order.paymentPreferences?.[0] || 'materials'}"]`
     );
     if (preferenceRadio) preferenceRadio.checked = true;
 
