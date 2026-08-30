@@ -360,7 +360,7 @@ function tableReferencesStaleOrders(table) {
     SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?
   `).get(table);
 
-  return Boolean(row && row.sql.includes('REFERENCES orders_old('));
+  return Boolean(row && row.sql.includes('orders_old'));
 }
 
 if (tableReferencesStaleOrders('order_recipe_items')) {
