@@ -1022,3 +1022,69 @@ dialog.order-modal {
   color: var(--muted);
   text-align: center;
 }
+
+.chest-card-minstock {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chest-card-low-stock {
+  border-color: rgba(255, 134, 162, 0.5);
+  background: rgba(255, 91, 131, 0.08);
+}
+
+.chest-card-low-stock .chest-card-quantity {
+  color: var(--danger);
+}
+
+.chest-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid rgba(255, 134, 162, 0.4);
+  border-radius: 999px;
+  background: rgba(255, 91, 131, 0.14);
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.stock-alerts-list {
+  display: grid;
+  gap: 10px;
+}
+
+.stock-alert-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 134, 162, 0.3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 91, 131, 0.08);
+}
+
+.stock-alert-row strong {
+  display: block;
+  color: #ffffff;
+}
+
+.stock-alert-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stock-alert-numbers {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.stock-alert-quantity {
+  font-size: 18px;
+  font-weight: 850;
+  color: var(--danger);
+}
