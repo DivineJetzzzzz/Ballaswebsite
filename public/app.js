@@ -26,6 +26,7 @@ let officialsChestTarget = null;
 let officialsChestAction = null;
 let ordersChestTarget = null;
 let ordersChestAction = null;
+let chestTransferTarget = null;
 let resetPasswordTarget = null;
 let auditLogs = [];
 
@@ -128,6 +129,48 @@ function isAdminOrResidentChief() {
 
 function canViewOrders() {
   return ['admin', 'officials', 'resident_chief', 'user'].includes(currentUser?.role);
+}
+
+// Espelha a configuração de baús do servidor, para construir o diálogo de
+// transferência e decidir para que baús o utilizador tem permissões.
+const CHEST_CONFIG = {
+  chest: { label: 'Baú 113', canAccess: () => isAdmin() },
+  residents: { label: 'Baú de Moradores', canAccess: () => isAdminOrResidentChief() },
+  officials: { label: 'Baú de Oficiais', canAccess: () => isAdminOrOfficials() },
+  orders: { label: 'Baú de Encomendas', canAccess: () => isAdmin() }
+};
+
+function getChestItemsByKey(chestKey) {
+  switch (chestKey) {
+    case 'chest': return chestItems;
+    case 'residents': return residentsChestItems;
+    case 'officials': return officialsChestItems;
+    case 'orders': return ordersChestItems;
+    default: return [];
+  }
+}
+
+function getChestLoaderByKey(chestKey) {
+  switch (chestKey) {
+    case 'chest': return loadChest;
+    case 'residents': return loadResidentsChest;
+    case 'officials': return loadOfficials;
+    case 'orders': return loadOrdersChest;
+    default: return async () => {};
+  }
+}
+
+function populateOrderSelect(selector) {
+  const select = $(selector);
+
+  if (!select) return;
+
+  select.innerHTML = [
+    '<option value="">Nenhuma</option>',
+    ...orders.map((order) => `
+      <option value="${order.id}">#${order.id} — ${escapeHTML(order.title)} (${statusLabel(order.status)})</option>
+    `)
+  ].join('');
 }
 
 function getRoleLabel(role = currentUser?.role) {
@@ -399,6 +442,7 @@ function renderChest() {
             <div class="chest-card-actions admin-only">
               <button class="btn secondary mini" type="button" data-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn danger mini" type="button" data-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -412,7 +456,9 @@ function renderChest() {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
-      delete: 'Apagado'
+      delete: 'Apagado',
+      transfer_in: 'Transferência (entrada)',
+      transfer_out: 'Transferência (saída)'
     };
 
     logsTable.innerHTML = chestLogs.length
@@ -422,10 +468,13 @@ function renderChest() {
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${log.counterpartLabel ? escapeHTML(log.counterpartLabel) : '—'}</td>
+          <td>${log.reason ? escapeHTML(log.reason) : '—'}</td>
+          <td>${log.orderId ? `#${log.orderId} ${escapeHTML(log.orderTitle || '')}` : '—'}</td>
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -448,6 +497,7 @@ function renderResidentsChest() {
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-residents-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn danger mini" type="button" data-residents-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -461,7 +511,9 @@ function renderResidentsChest() {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
-      delete: 'Apagado'
+      delete: 'Apagado',
+      transfer_in: 'Transferência (entrada)',
+      transfer_out: 'Transferência (saída)'
     };
 
     logsTable.innerHTML = residentsChestLogs.length
@@ -471,10 +523,13 @@ function renderResidentsChest() {
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${log.counterpartLabel ? escapeHTML(log.counterpartLabel) : '—'}</td>
+          <td>${log.reason ? escapeHTML(log.reason) : '—'}</td>
+          <td>${log.orderId ? `#${log.orderId} ${escapeHTML(log.orderTitle || '')}` : '—'}</td>
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -497,6 +552,7 @@ function renderOfficials() {
             <div class="chest-card-actions admin-or-officials">
               <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-officials-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn danger mini" type="button" data-officials-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -510,7 +566,9 @@ function renderOfficials() {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
-      delete: 'Apagado'
+      delete: 'Apagado',
+      transfer_in: 'Transferência (entrada)',
+      transfer_out: 'Transferência (saída)'
     };
 
     logsTable.innerHTML = officialsChestLogs.length
@@ -520,10 +578,13 @@ function renderOfficials() {
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${log.counterpartLabel ? escapeHTML(log.counterpartLabel) : '—'}</td>
+          <td>${log.reason ? escapeHTML(log.reason) : '—'}</td>
+          <td>${log.orderId ? `#${log.orderId} ${escapeHTML(log.orderTitle || '')}` : '—'}</td>
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -544,6 +605,7 @@ function renderOrdersChest() {
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-orders-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn danger mini" type="button" data-orders-chest-delete="${item.id}">Apagar</button>
             </div>
           ` : ''}
@@ -557,7 +619,9 @@ function renderOrdersChest() {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
-      delete: 'Apagado'
+      delete: 'Apagado',
+      transfer_in: 'Transferência (entrada)',
+      transfer_out: 'Transferência (saída)'
     };
 
     logsTable.innerHTML = ordersChestLogs.length
@@ -567,10 +631,13 @@ function renderOrdersChest() {
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
+          <td>${log.counterpartLabel ? escapeHTML(log.counterpartLabel) : '—'}</td>
+          <td>${log.reason ? escapeHTML(log.reason) : '—'}</td>
+          <td>${log.orderId ? `#${log.orderId} ${escapeHTML(log.orderTitle || '')}` : '—'}</td>
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="5">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -787,6 +854,9 @@ function openChestMovement(id, action) {
     : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
 
   $('#chestActionQuantity').value = '';
+  $('#chestActionReason').value = '';
+  populateOrderSelect('#chestActionOrder');
+  $('#chestActionOrder').value = '';
   $('#chestActionError').textContent = '';
   $('#chestActionDialog').showModal();
 }
@@ -808,6 +878,9 @@ function openResidentsMovement(id, action) {
     : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
 
   $('#residentsChestActionQuantity').value = '';
+  $('#residentsChestActionReason').value = '';
+  populateOrderSelect('#residentsChestActionOrder');
+  $('#residentsChestActionOrder').value = '';
   $('#residentsChestActionError').textContent = '';
   $('#residentsChestActionDialog').showModal();
 }
@@ -829,6 +902,9 @@ function openOfficialsMovement(id, action) {
     : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
 
   $('#officialsChestActionQuantity').value = '';
+  $('#officialsChestActionReason').value = '';
+  populateOrderSelect('#officialsChestActionOrder');
+  $('#officialsChestActionOrder').value = '';
   $('#officialsChestActionError').textContent = '';
   $('#officialsChestActionDialog').showModal();
 }
@@ -850,13 +926,49 @@ function openOrdersChestMovement(id, action) {
     : `Quantidade atual: ${item.quantity}. Não podes retirar mais do que existe.`;
 
   $('#ordersChestActionQuantity').value = '';
+  $('#ordersChestActionReason').value = '';
+  populateOrderSelect('#ordersChestActionOrder');
+  $('#ordersChestActionOrder').value = '';
   $('#ordersChestActionError').textContent = '';
   $('#ordersChestActionDialog').showModal();
 }
 
+function openChestTransfer(chestKey, id) {
+  const config = CHEST_CONFIG[chestKey];
+  const item = getChestItemsByKey(chestKey).find((entry) => entry.id === id);
+
+  if (!config || !item) return;
+
+  chestTransferTarget = { chestKey, item };
+
+  $('#chestTransferTitle').textContent = `Transferir ${item.name}`;
+  $('#chestTransferText').textContent = `De: ${config.label}. Quantidade disponível: ${item.quantity}.`;
+
+  const destinationOptions = Object.entries(CHEST_CONFIG)
+    .filter(([key, cfg]) => key !== chestKey && cfg.canAccess())
+    .map(([key, cfg]) => `<option value="${key}">${escapeHTML(cfg.label)}</option>`)
+    .join('');
+
+  $('#chestTransferDestination').innerHTML = destinationOptions
+    || '<option value="">Não tens acesso a outro baú</option>';
+
+  $('#chestTransferQuantity').value = '';
+  $('#chestTransferQuantity').max = String(item.quantity);
+  $('#chestTransferReason').value = '';
+  populateOrderSelect('#chestTransferOrder');
+  $('#chestTransferOrder').value = '';
+  $('#chestTransferError').textContent = '';
+  $('#chestTransferDialog').showModal();
+}
+
 async function showOrderDetail(id) {
   try {
-    const { order } = await request(`/api/orders/${id}`);
+    const [{ order }, movementsData] = await Promise.all([
+      request(`/api/orders/${id}`),
+      request(`/api/orders/${id}/movements`).catch(() => ({ movements: [] }))
+    ]);
+
+    const movements = movementsData.movements || [];
 
     $('#detailTitle').textContent = `Encomenda #${order.id} — ${order.title}`;
 
@@ -867,6 +979,15 @@ async function showOrderDetail(id) {
     `;
 
     const total = order.items.reduce((sum, item) => sum + item.subtotal, 0);
+
+    const movementLabels = {
+      add: 'Entrada',
+      remove: 'Saída',
+      create: 'Criado',
+      delete: 'Apagado',
+      transfer_in: 'Transferência (entrada)',
+      transfer_out: 'Transferência (saída)'
+    };
 
     $('#orderDetailContent').innerHTML = `
       <div class="detail-grid">
@@ -890,6 +1011,24 @@ async function showOrderDetail(id) {
                 <li>${escapeHTML(material.name)} × ${material.quantity}</li>
               `).join('')
               : '<li>Esta encomenda não usa materiais.</li>'}
+          </ul>
+        </section>
+
+        <section class="detail-block">
+          <h4>Movimentos de stock associados</h4>
+          <ul class="detail-list">
+            ${movements.length
+              ? movements.map((movement) => `
+                <li>
+                  <strong>${movementLabels[movement.changeType] || movement.changeType}</strong>
+                  — ${escapeHTML(movement.itemName)} × ${movement.quantity}
+                  no ${escapeHTML(movement.chestLabel)}
+                  ${movement.counterpartLabel ? `(${escapeHTML(movement.counterpartLabel)})` : ''}
+                  — por ${escapeHTML(movement.actorUsername)} em ${formatDate(movement.createdAt)}
+                  ${movement.reason ? `<br><em>Motivo: ${escapeHTML(movement.reason)}</em>` : ''}
+                </li>
+              `).join('')
+              : '<li>Ainda não existem movimentos de stock associados a esta encomenda.</li>'}
           </ul>
         </section>
       </div>
@@ -1480,7 +1619,9 @@ $('#chestActionForm').addEventListener('submit', async (event) => {
       method: 'PATCH',
       body: JSON.stringify({
         action: chestAction,
-        quantity: $('#chestActionQuantity').value
+        quantity: $('#chestActionQuantity').value,
+        reason: $('#chestActionReason').value,
+        orderId: $('#chestActionOrder').value || null
       })
     });
 
@@ -1535,7 +1676,9 @@ $('#residentsChestActionForm').addEventListener('submit', async (event) => {
       method: 'PATCH',
       body: JSON.stringify({
         action: residentsChestAction,
-        quantity: $('#residentsChestActionQuantity').value
+        quantity: $('#residentsChestActionQuantity').value,
+        reason: $('#residentsChestActionReason').value,
+        orderId: $('#residentsChestActionOrder').value || null
       })
     });
 
@@ -1590,7 +1733,9 @@ $('#officialsChestActionForm').addEventListener('submit', async (event) => {
       method: 'PATCH',
       body: JSON.stringify({
         action: officialsChestAction,
-        quantity: $('#officialsChestActionQuantity').value
+        quantity: $('#officialsChestActionQuantity').value,
+        reason: $('#officialsChestActionReason').value,
+        orderId: $('#officialsChestActionOrder').value || null
       })
     });
 
@@ -1645,7 +1790,9 @@ $('#ordersChestActionForm').addEventListener('submit', async (event) => {
       method: 'PATCH',
       body: JSON.stringify({
         action: ordersChestAction,
-        quantity: $('#ordersChestActionQuantity').value
+        quantity: $('#ordersChestActionQuantity').value,
+        reason: $('#ordersChestActionReason').value,
+        orderId: $('#ordersChestActionOrder').value || null
       })
     });
 
@@ -1653,6 +1800,51 @@ $('#ordersChestActionForm').addEventListener('submit', async (event) => {
     await loadOrdersChest();
   } catch (error) {
     $('#ordersChestActionError').textContent = error.message;
+  }
+});
+
+$('#closeChestTransferDialog').addEventListener('click', () => {
+  $('#chestTransferDialog').close();
+});
+
+$('#chestTransferForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  if (!chestTransferTarget) return;
+
+  $('#chestTransferError').textContent = '';
+
+  const destination = $('#chestTransferDestination').value;
+
+  if (!destination) {
+    $('#chestTransferError').textContent = 'Escolhe um baú de destino.';
+    return;
+  }
+
+  try {
+    await request('/api/chest-transfers', {
+      method: 'POST',
+      body: JSON.stringify({
+        fromChest: chestTransferTarget.chestKey,
+        toChest: destination,
+        itemName: chestTransferTarget.item.name,
+        quantity: $('#chestTransferQuantity').value,
+        reason: $('#chestTransferReason').value,
+        orderId: $('#chestTransferOrder').value || null
+      })
+    });
+
+    const sourceKey = chestTransferTarget.chestKey;
+
+    $('#chestTransferDialog').close();
+    chestTransferTarget = null;
+
+    await Promise.all([
+      getChestLoaderByKey(sourceKey)(),
+      getChestLoaderByKey(destination)()
+    ]);
+  } catch (error) {
+    $('#chestTransferError').textContent = error.message;
   }
 });
 
@@ -1776,6 +1968,7 @@ document.addEventListener('click', async (event) => {
   const chestAdd = event.target.closest('[data-chest-add]');
   const chestRemove = event.target.closest('[data-chest-remove]');
   const chestDelete = event.target.closest('[data-chest-delete]');
+  const chestTransfer = event.target.closest('[data-chest-transfer]');
   const orderView = event.target.closest('[data-order-view]');
   const orderDelete = event.target.closest('[data-order-delete]');
 
@@ -1909,9 +2102,15 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (chestTransfer) {
+      openChestTransfer('chest', Number(chestTransfer.dataset.chestTransfer));
+      return;
+    }
+
     const residentsChestAdd = event.target.closest('[data-residents-chest-add]');
     const residentsChestRemove = event.target.closest('[data-residents-chest-remove]');
     const residentsChestDelete = event.target.closest('[data-residents-chest-delete]');
+    const residentsChestTransfer = event.target.closest('[data-residents-chest-transfer]');
 
     if (residentsChestAdd) {
       openResidentsMovement(Number(residentsChestAdd.dataset.residentsChestAdd), 'add');
@@ -1933,9 +2132,15 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (residentsChestTransfer) {
+      openChestTransfer('residents', Number(residentsChestTransfer.dataset.residentsChestTransfer));
+      return;
+    }
+
     const officialsChestAdd = event.target.closest('[data-officials-chest-add]');
     const officialsChestRemove = event.target.closest('[data-officials-chest-remove]');
     const officialsChestDelete = event.target.closest('[data-officials-chest-delete]');
+    const officialsChestTransfer = event.target.closest('[data-officials-chest-transfer]');
 
     if (officialsChestAdd) {
       openOfficialsMovement(Number(officialsChestAdd.dataset.officialsChestAdd), 'add');
@@ -1957,9 +2162,15 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (officialsChestTransfer) {
+      openChestTransfer('officials', Number(officialsChestTransfer.dataset.officialsChestTransfer));
+      return;
+    }
+
     const ordersChestAdd = event.target.closest('[data-orders-chest-add]');
     const ordersChestRemove = event.target.closest('[data-orders-chest-remove]');
     const ordersChestDelete = event.target.closest('[data-orders-chest-delete]');
+    const ordersChestTransfer = event.target.closest('[data-orders-chest-transfer]');
 
     if (ordersChestAdd) {
       openOrdersChestMovement(Number(ordersChestAdd.dataset.ordersChestAdd), 'add');
@@ -1978,6 +2189,11 @@ document.addEventListener('click', async (event) => {
 
       await request(`/api/orders-chest/${id}`, { method: 'DELETE' });
       await loadOrdersChest();
+      return;
+    }
+
+    if (ordersChestTransfer) {
+      openChestTransfer('orders', Number(ordersChestTransfer.dataset.ordersChestTransfer));
       return;
     }
 
