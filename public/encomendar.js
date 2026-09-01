@@ -39,6 +39,33 @@ function formatMoney(value) {
   return `${new Intl.NumberFormat('pt-PT').format(Number(value) || 0)} $`;
 }
 
+function renderPublicCalculator() {
+  const calculator = $('#publicCalculator');
+  const selected = catalogItems.filter((item) => Number(quantities.get(item.id) || 0) > 0);
+
+  if (!selected.length) {
+    calculator.innerHTML = '<div class="public-calculator-empty">Escolhe quantidades nos itens para veres aqui o total estimado.</div>';
+    return;
+  }
+
+  const total = selected.reduce(
+    (sum, item) => sum + item.referencePrice * Number(quantities.get(item.id) || 0),
+    0
+  );
+
+  calculator.innerHTML = `
+    <div class="public-calculator-summary">
+      <div class="public-calculator-total">Total estimado: <strong>${formatMoney(total)}</strong></div>
+      <strong>Itens escolhidos</strong>
+      <ul class="public-calculator-list">
+        ${selected.map((item) => `
+          <li><span>${escapeHTML(item.name)} × ${quantities.get(item.id)}</span><span>${formatMoney(item.referencePrice * quantities.get(item.id))}</span></li>
+        `).join('')}
+      </ul>
+    </div>
+  `;
+}
+
 function renderCatalog() {
   const list = $('#publicCatalogList');
   const category = $('#publicCategoryFilter').value;
@@ -86,6 +113,7 @@ async function loadCatalog() {
     ].join('');
 
     renderCatalog();
+    renderPublicCalculator();
   } catch (error) {
     list.innerHTML = `<div class="public-catalog-empty">${escapeHTML(error.message)}</div>`;
   }
@@ -102,6 +130,7 @@ $('#publicCatalogList').addEventListener('input', (event) => {
   const quantity = Math.max(0, Number.parseInt(input.value || '0', 10) || 0);
 
   quantities.set(id, quantity);
+  renderPublicCalculator();
 });
 
 function showMessage(text, isError) {
@@ -156,6 +185,7 @@ $('#publicOrderForm').addEventListener('submit', async (event) => {
     $('#publicOrderForm').reset();
     quantities.clear();
     renderCatalog();
+    renderPublicCalculator();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     errorElement.textContent = error.message;
