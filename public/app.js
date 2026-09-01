@@ -879,13 +879,12 @@ function renderOrderCalculator() {
     ? `
       <div class="calculator-summary">
         <div class="calculator-totals">
-          <div class="calculator-total payment-total-clean">Total limpo: <strong>${formatMoney(totalClean)}</strong></div>
           <div class="calculator-total payment-total-dirty">Total sujo: <strong>${formatMoney(totalDirty)}</strong></div>
         </div>
         <strong>Itens</strong>
         <ul class="calculator-list">
           ${selected.map((recipe) => `
-            <li><span>${escapeHTML(recipe.name)} × ${orderQuantities.get(recipe.id)}</span><span>${formatMoney((recipe.cleanPrice ?? recipe.unitPrice) * orderQuantities.get(recipe.id))} / ${formatMoney((recipe.dirtyPrice ?? recipe.unitPrice) * orderQuantities.get(recipe.id))}</span></li>
+            <li><span>${escapeHTML(recipe.name)} × ${orderQuantities.get(recipe.id)}</span><span>${formatMoney((recipe.dirtyPrice ?? recipe.unitPrice) * orderQuantities.get(recipe.id))}</span></li>
           `).join('')}
         </ul>
         <strong>Materiais necessários</strong>
