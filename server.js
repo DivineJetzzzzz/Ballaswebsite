@@ -860,7 +860,7 @@ function validateRecipeMaterials(value, { required } = { required: true }) {
 
   for (const entry of value) {
     const materialId = ensureInteger(entry.materialId, 1);
-    const quantity = ensureInteger(entry.quantity, 1, 100000);
+    const quantity = ensureInteger(entry.quantity, 1, 1000000000);
 
     if (!materialId || !quantity || used.has(materialId)) {
       return null;
