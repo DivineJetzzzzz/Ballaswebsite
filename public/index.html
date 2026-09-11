@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
   <section id="loginView" class="login-shell">
     <div class="login-card">
       <div class="brand">
@@ -52,17 +54,17 @@
       </div>
 
       <nav aria-label="Navegação principal">
-        <button class="nav active" data-page="dashboard" type="button">⌂ <span>Visão geral</span></button>
-        <button class="nav admin-only" data-page="chest" type="button">▣ <span>Baú 113</span></button>
-        <button class="nav admin-or-resident-chief" data-page="residentsChest" type="button">▣ <span>Baú Moradores</span></button>
-        <button class="nav admin-or-officials" data-page="officialsChest" type="button">▣ <span>Baú Oficiais</span></button>
-        <button class="nav admin-only" data-page="ordersChest" type="button">▣ <span>Baú Encomendas</span></button>
-        <button class="nav orders-viewer" data-page="orders" type="button">☷ <span>Encomendas</span></button>
-        <button class="nav orders-viewer" data-page="ammunationOrders" type="button">▤ <span>Encomendas Ammunation</span></button>
-        <button class="nav admin-only" data-page="publicOrders" type="button">✉ <span>Pedidos Públicos</span></button>
-        <button class="nav admin-only" data-page="recipes" type="button">⚗ <span>Receitas</span></button>
-        <button class="nav admin-only" data-page="users" type="button">♙ <span>Utilizadores</span></button>
-        <button class="nav admin-only" data-page="auditLogs" type="button">🗒 <span>Registo</span></button>
+        <button class="nav active" data-page="dashboard" type="button"><span aria-hidden="true">⌂</span> <span>Visão geral</span></button>
+        <button class="nav admin-only" data-page="chest" type="button"><span aria-hidden="true">▣</span> <span>Baú 113</span></button>
+        <button class="nav admin-or-resident-chief" data-page="residentsChest" type="button"><span aria-hidden="true">▣</span> <span>Baú Moradores</span></button>
+        <button class="nav admin-or-officials" data-page="officialsChest" type="button"><span aria-hidden="true">▣</span> <span>Baú Oficiais</span></button>
+        <button class="nav admin-only" data-page="ordersChest" type="button"><span aria-hidden="true">▣</span> <span>Baú Encomendas</span></button>
+        <button class="nav orders-viewer" data-page="orders" type="button"><span aria-hidden="true">☷</span> <span>Encomendas</span></button>
+        <button class="nav orders-viewer" data-page="ammunationOrders" type="button"><span aria-hidden="true">▤</span> <span>Encomendas Ammunation</span></button>
+        <button class="nav admin-only" data-page="publicOrders" type="button"><span aria-hidden="true">✉</span> <span>Pedidos Públicos</span></button>
+        <button class="nav admin-only" data-page="recipes" type="button"><span aria-hidden="true">⚗</span> <span>Receitas</span></button>
+        <button class="nav admin-only" data-page="users" type="button"><span aria-hidden="true">♙</span> <span>Utilizadores</span></button>
+        <button class="nav admin-only" data-page="auditLogs" type="button"><span aria-hidden="true">🗒</span> <span>Registo</span></button>
       </nav>
 
       <div class="profile">
@@ -149,10 +151,14 @@
               <h3>Baú 113</h3>
               <p>Controla o stock, entradas e saídas da organização.</p>
             </div>
-            <button id="openChestCreateDialog" class="btn primary admin-only" type="button">+ Novo item</button>
+            <div class="actions">
+              <input id="chestSearchInput" type="search" class="list-search-input" placeholder="Pesquisar item..." aria-label="Pesquisar itens do Baú 113">
+              <button id="openChestCreateDialog" class="btn primary admin-only" type="button">+ Novo item</button>
+            </div>
           </div>
 
           <div id="chestTable" class="chest-grid"></div>
+          <div id="chestPager" class="pager"></div>
         </section>
 
         <section class="panel">
@@ -190,10 +196,14 @@
               <h3>Baú de Moradores</h3>
               <p>Controla o stock, entradas e saídas dos moradores.</p>
             </div>
-            <button id="openResidentsChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            <div class="actions">
+              <input id="residentsChestSearchInput" type="search" class="list-search-input" placeholder="Pesquisar item..." aria-label="Pesquisar itens do Baú de Moradores">
+              <button id="openResidentsChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            </div>
           </div>
 
           <div id="residentsChestTable" class="chest-grid"></div>
+          <div id="residentsChestPager" class="pager"></div>
         </section>
 
         <section class="panel">
@@ -231,10 +241,14 @@
               <h3>Baú de Oficiais</h3>
               <p>Controla o stock, entradas e saídas dos oficiais.</p>
             </div>
-            <button id="openOfficialsChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            <div class="actions">
+              <input id="officialsChestSearchInput" type="search" class="list-search-input" placeholder="Pesquisar item..." aria-label="Pesquisar itens do Baú de Oficiais">
+              <button id="openOfficialsChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            </div>
           </div>
 
           <div id="officialsChestTable" class="chest-grid"></div>
+          <div id="officialsChestPager" class="pager"></div>
         </section>
 
         <section class="panel">
@@ -272,10 +286,14 @@
               <h3>Baú de Encomendas</h3>
               <p>Controla o stock, entradas e saídas do baú de encomendas. Acesso exclusivo a administradores.</p>
             </div>
-            <button id="openOrdersChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            <div class="actions">
+              <input id="ordersChestSearchInput" type="search" class="list-search-input" placeholder="Pesquisar item..." aria-label="Pesquisar itens do Baú de Encomendas">
+              <button id="openOrdersChestCreateDialog" class="btn primary" type="button">+ Novo item</button>
+            </div>
           </div>
 
           <div id="ordersChestTable" class="chest-grid"></div>
+          <div id="ordersChestPager" class="pager"></div>
         </section>
 
         <section class="panel">
@@ -351,6 +369,7 @@
               <tbody id="ordersTable"></tbody>
             </table>
           </div>
+          <div id="ordersPager" class="pager"></div>
         </section>
       </section>
 
@@ -379,6 +398,7 @@
               <p>Encomendas pagas a dinheiro, limpo ou sujo.</p>
             </div>
             <div class="actions">
+              <input id="ammunationOrdersSearchInput" type="search" class="list-search-input" placeholder="Pesquisar por nº, título ou criador..." aria-label="Pesquisar encomendas Ammunation">
               <button id="openAmmunationDialog" class="btn ammunation-btn admin-only" type="button">+ Ammunation</button>
             </div>
           </div>
@@ -399,6 +419,7 @@
               <tbody id="ammunationOrdersTable"></tbody>
             </table>
           </div>
+          <div id="ammunationOrdersPager" class="pager"></div>
         </section>
       </section>
 
@@ -410,6 +431,7 @@
               <p>Pedidos submetidos por qualquer pessoa em <code>/encomendar</code>, sem necessidade de conta. Analisa, aceita e converte, rejeita ou arquiva.</p>
             </div>
             <div class="actions">
+              <input id="publicOrdersSearchInput" type="search" class="list-search-input" placeholder="Pesquisar por nº, nome ou contacto..." aria-label="Pesquisar pedidos públicos">
               <select id="publicOrdersFilter">
                 <option value="pending">Pendentes</option>
                 <option value="all">Todos os estados</option>
@@ -438,6 +460,7 @@
               <tbody id="publicOrdersTable"></tbody>
             </table>
           </div>
+          <div id="publicOrdersPager" class="pager"></div>
         </section>
       </section>
 
@@ -518,6 +541,9 @@
               <h3>Receitas de crafting</h3>
               <p>Ativa, desativa, edita ou remove receitas.</p>
             </div>
+            <div class="actions">
+              <input id="recipesSearchInput" type="search" class="list-search-input" placeholder="Pesquisar por nome ou categoria..." aria-label="Pesquisar receitas">
+            </div>
           </div>
 
           <div class="table-wrap">
@@ -535,6 +561,7 @@
               <tbody id="recipesTable"></tbody>
             </table>
           </div>
+          <div id="recipesPager" class="pager"></div>
         </section>
       </section>
 
@@ -546,6 +573,7 @@
               <p>Cria, bloqueia, reativa ou elimina contas.</p>
             </div>
             <div class="actions">
+              <input id="usersSearchInput" type="search" class="list-search-input" placeholder="Pesquisar utilizador..." aria-label="Pesquisar utilizadores">
               <button id="openUserDialog" class="btn primary" type="button">+ Novo utilizador</button>
             </div>
           </div>
@@ -564,6 +592,7 @@
               <tbody id="usersTable"></tbody>
             </table>
           </div>
+          <div id="usersPager" class="pager"></div>
         </section>
       </section>
 
@@ -573,6 +602,9 @@
             <div>
               <h3>Registo de atividade</h3>
               <p>Histórico das últimas 200 ações realizadas no sistema.</p>
+            </div>
+            <div class="actions">
+              <input id="auditLogsSearchInput" type="search" class="list-search-input" placeholder="Pesquisar por autor, ação ou alvo..." aria-label="Pesquisar registo de atividade">
             </div>
           </div>
 
@@ -589,6 +621,7 @@
               <tbody id="auditLogsTable"></tbody>
             </table>
           </div>
+          <div id="auditLogsPager" class="pager"></div>
         </section>
       </section>
     </main>
@@ -1189,6 +1222,29 @@
 
       <div class="modal-actions">
         <button class="btn primary" type="submit">Converter e criar encomenda</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog">
+    <div class="modal">
+      <h3 id="confirmDialogTitle">Confirmar ação</h3>
+      <p id="confirmDialogMessage"></p>
+      <div class="modal-actions">
+        <button id="confirmDialogCancel" class="btn secondary" type="button">Cancelar</button>
+        <button id="confirmDialogOk" class="btn primary" type="button">Confirmar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="promptDialog">
+    <form id="promptDialogForm" class="modal" novalidate>
+      <h3 id="promptDialogTitle">Confirmar ação</h3>
+      <div id="promptDialogFields"></div>
+      <div id="promptDialogError" class="error" aria-live="polite"></div>
+      <div class="modal-actions">
+        <button id="promptDialogCancel" class="btn secondary" type="button">Cancelar</button>
+        <button id="promptDialogSubmit" class="btn primary" type="submit">Confirmar</button>
       </div>
     </form>
   </dialog>
