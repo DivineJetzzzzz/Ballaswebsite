@@ -1007,6 +1007,76 @@ dialog.order-modal {
   font-size: 17px;
 }
 
+/* Barra de separadores das 2 secções (Baú A / Baú B) de cada baú — reflete
+   os 2 baús físicos que cada casa tem no jogo. */
+.compartment-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.compartment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compartment-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(8, 5, 14, 0.7);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.compartment-tab:hover {
+  border-color: rgba(213, 184, 255, 0.4);
+  color: #ffffff;
+}
+
+.compartment-tab.is-active {
+  border-color: var(--accent-light);
+  background: rgba(142, 68, 255, 0.22);
+  color: #ffffff;
+}
+
+.compartment-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 11px;
+}
+
+.compartment-tab.is-active .compartment-tab-count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+@media (max-width: 620px) {
+  .compartment-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compartment-bar .btn {
+    width: 100%;
+  }
+}
+
 .chest-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
