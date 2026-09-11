@@ -50,15 +50,149 @@ const LIST_PAGE_SIZE = 10;
 const listUIState = {
   users: { query: '', page: 1 },
   recipes: { query: '', page: 1 },
-  chest: { query: '', page: 1 },
-  residentsChest: { query: '', page: 1 },
-  officialsChest: { query: '', page: 1 },
-  ordersChest: { query: '', page: 1 },
+  chest: { query: '', page: 1, compartment: 'A' },
+  residentsChest: { query: '', page: 1, compartment: 'A' },
+  officialsChest: { query: '', page: 1, compartment: 'A' },
+  ordersChest: { query: '', page: 1, compartment: 'A' },
   orders: { query: '', page: 1 },
   ammunationOrders: { query: '', page: 1 },
   publicOrders: { query: '', page: 1 },
   auditLogs: { query: '', page: 1 }
 };
+
+// Cada baú (casa) está dividido em 2 secções configuráveis (ex.: "Armas" /
+// "Materiais"), espelhando os 2 baús físicos que cada casa tem no jogo.
+// Os nomes vêm da API (compartmentLabels) e ficam guardados aqui.
+const compartmentLabels = {
+  chest: { A: 'Baú A', B: 'Baú B' },
+  residentsChest: { A: 'Baú A', B: 'Baú B' },
+  officialsChest: { A: 'Baú A', B: 'Baú B' },
+  ordersChest: { A: 'Baú A', B: 'Baú B' }
+};
+
+// Mapa de nome-da-lista (usado no frontend) -> chave/endpoint usados pela
+// API para esse baú, para não repetir esta associação em cada função.
+const CHEST_LIST_INFO = {
+  chest: { chestKey: 'chest', apiPrefix: '/api/chest' },
+  residentsChest: { chestKey: 'residents', apiPrefix: '/api/residents-chest' },
+  officialsChest: { chestKey: 'officials', apiPrefix: '/api/officials-chest' },
+  ordersChest: { chestKey: 'orders', apiPrefix: '/api/orders-chest' }
+};
+
+function otherCompartment(compartment) {
+  return compartment === 'B' ? 'A' : 'B';
+}
+
+// Preenche o <select> de secção dos diálogos de "Novo item", com o separador
+// atualmente ativo pré-selecionado.
+function populateCompartmentSelect(selectSelector, listKey) {
+  const select = $(selectSelector);
+
+  if (!select) return;
+
+  const labels = compartmentLabels[listKey] || { A: 'Baú A', B: 'Baú B' };
+  const active = listUIState[listKey]?.compartment || 'A';
+
+  select.innerHTML = `
+    <option value="A" ${active === 'A' ? 'selected' : ''}>${escapeHTML(labels.A)}</option>
+    <option value="B" ${active === 'B' ? 'selected' : ''}>${escapeHTML(labels.B)}</option>
+  `;
+}
+
+// Move um item entre as 2 secções do mesmo baú (não muda a quantidade nem a
+// casa), pedindo confirmação antes por ser uma reorganização visível a
+// quem gere esse baú.
+async function moveChestItemCompartment(apiPrefix, listKey, items, id, reload) {
+  const item = items.find((entry) => entry.id === id);
+
+  if (!item) return;
+
+  const currentCompartment = item.compartment || 'A';
+  const targetCompartment = otherCompartment(currentCompartment);
+  const labels = compartmentLabels[listKey];
+
+  const confirmed = await confirmDialog(
+    `Mover "${item.name}" de ${labels[currentCompartment]} para ${labels[targetCompartment]}?`,
+    { title: 'Mudar de secção', confirmLabel: 'Mover' }
+  );
+
+  if (!confirmed) return;
+
+  await request(`${apiPrefix}/${id}/compartment`, {
+    method: 'PATCH',
+    body: JSON.stringify({ compartment: targetCompartment })
+  });
+
+  showToast(`Item movido para ${labels[targetCompartment]}.`, 'success');
+  await reload();
+}
+
+// Abre o diálogo genérico de renomear as 2 secções de um baú.
+async function renameCompartments(apiPrefix, listKey, reload) {
+  const labels = compartmentLabels[listKey] || { A: 'Baú A', B: 'Baú B' };
+
+  const values = await openPromptDialog({
+    title: 'Nomes das secções do Baú',
+    confirmLabel: 'Guardar nomes',
+    fields: [
+      { id: 'labelA', label: 'Nome da secção A', value: labels.A, required: true, maxlength: 40 },
+      { id: 'labelB', label: 'Nome da secção B', value: labels.B, required: true, maxlength: 40 }
+    ]
+  });
+
+  if (!values) return;
+
+  try {
+    await request(`${apiPrefix}/compartment-labels`, {
+      method: 'PATCH',
+      body: JSON.stringify({ labelA: values.labelA, labelB: values.labelB })
+    });
+
+    showToast('Nomes das secções atualizados.', 'success');
+    await reload();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
+}
+
+// Desenha os 2 separadores (Baú A / Baú B) com o nome configurado e a
+// contagem de itens de cada secção, usando a lista COMPLETA (antes de
+// filtrar por pesquisa), para as contagens refletirem sempre o baú todo.
+function renderCompartmentTabs(containerSelector, listKey, allItems) {
+  const container = $(containerSelector);
+
+  if (!container) return;
+
+  const labels = compartmentLabels[listKey] || { A: 'Baú A', B: 'Baú B' };
+  const state = listUIState[listKey];
+  const countA = allItems.filter((item) => (item.compartment || 'A') === 'A').length;
+  const countB = allItems.filter((item) => (item.compartment || 'A') === 'B').length;
+
+  container.innerHTML = `
+    <button class="compartment-tab ${state.compartment === 'A' ? 'is-active' : ''}" type="button" data-compartment-tab="${listKey}" data-compartment="A">
+      ${escapeHTML(labels.A)} <span class="compartment-tab-count">${countA}</span>
+    </button>
+    <button class="compartment-tab ${state.compartment === 'B' ? 'is-active' : ''}" type="button" data-compartment-tab="${listKey}" data-compartment="B">
+      ${escapeHTML(labels.B)} <span class="compartment-tab-count">${countB}</span>
+    </button>
+  `;
+}
+
+document.addEventListener('click', (event) => {
+  const tabButton = event.target.closest('[data-compartment-tab]');
+
+  if (!tabButton) return;
+
+  const listKey = tabButton.dataset.compartmentTab;
+  const compartment = tabButton.dataset.compartment;
+  const state = listUIState[listKey];
+
+  if (!state || state.compartment === compartment) return;
+
+  state.compartment = compartment;
+  state.page = 1;
+  LIST_RENDERERS[listKey]?.();
+});
 
 function textMatches(parts, query) {
   if (!query) return true;
@@ -743,11 +877,15 @@ function renderChest() {
   const table = $('#chestTable');
   const logsTable = $('#chestLogsTable');
 
+  renderCompartmentTabs('#chestCompartmentTabs', 'chest', chestItems);
+
   if (table) {
     const state = listUIState.chest;
     const query = state.query.trim();
-    const filtered = chestItems.filter((item) => textMatches([item.name], query));
+    const inCompartment = chestItems.filter((item) => (item.compartment || 'A') === state.compartment);
+    const filtered = inCompartment.filter((item) => textMatches([item.name], query));
     const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+    const labels = compartmentLabels.chest;
 
     table.innerHTML = pageItems.length
       ? pageItems.map((item, index) => `
@@ -764,6 +902,7 @@ function renderChest() {
             <div class="chest-card-actions admin-only">
               <button class="btn secondary mini" type="button" data-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-chest-move="${item.id}">↕ Mover para ${escapeHTML(labels[otherCompartment(item.compartment)])}</button>
               <button class="btn secondary mini" type="button" data-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn secondary mini" type="button" data-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn secondary mini" type="button" data-chest-image="${item.id}">🖼 Imagem</button>
@@ -772,17 +911,18 @@ function renderChest() {
           ` : ''}
         </div>
       `).join('')
-      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú 113 ainda não tem itens.'}</div>`;
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : `O ${labels[state.compartment]} ainda não tem itens.`}</div>`;
 
     renderPager('#chestPager', 'chest', totalPages, safePage);
   }
 
   if (logsTable) {
-    const labels = {
+    const typeLabels = {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
       delete: 'Apagado',
+      move: 'Mudou de secção',
       transfer_in: 'Transferência (entrada)',
       transfer_out: 'Transferência (saída)'
     };
@@ -790,7 +930,8 @@ function renderChest() {
     logsTable.innerHTML = chestLogs.length
       ? chestLogs.map((log) => `
         <tr>
-          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td class="chest-${escapeHTML(log.changeType)}">${typeLabels[log.changeType] || log.changeType}</td>
+          <td>${log.compartment ? escapeHTML(compartmentLabels.chest[log.compartment] || log.compartment) : '—'}</td>
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
@@ -800,7 +941,7 @@ function renderChest() {
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="9">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -808,12 +949,16 @@ function renderResidentsChest() {
   const table = $('#residentsChestTable');
   const logsTable = $('#residentsChestLogsTable');
 
+  renderCompartmentTabs('#residentsChestCompartmentTabs', 'residentsChest', residentsChestItems);
+
   if (table) {
     const canModifyResidentsChest = isAdmin() || currentUser?.role === 'resident_chief';
     const state = listUIState.residentsChest;
     const query = state.query.trim();
-    const filtered = residentsChestItems.filter((item) => textMatches([item.name], query));
+    const inCompartment = residentsChestItems.filter((item) => (item.compartment || 'A') === state.compartment);
+    const filtered = inCompartment.filter((item) => textMatches([item.name], query));
     const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+    const labels = compartmentLabels.residentsChest;
 
     table.innerHTML = pageItems.length
       ? pageItems.map((item) => `
@@ -830,6 +975,7 @@ function renderResidentsChest() {
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-residents-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-residents-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-residents-chest-move="${item.id}">↕ Mover para ${escapeHTML(labels[otherCompartment(item.compartment)])}</button>
               <button class="btn secondary mini" type="button" data-residents-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn secondary mini" type="button" data-residents-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn secondary mini" type="button" data-residents-chest-image="${item.id}">🖼 Imagem</button>
@@ -838,17 +984,18 @@ function renderResidentsChest() {
           ` : ''}
         </div>
       `).join('')
-      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú Moradores ainda não tem itens.'}</div>`;
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : `O ${labels[state.compartment]} ainda não tem itens.`}</div>`;
 
     renderPager('#residentsChestPager', 'residentsChest', totalPages, safePage);
   }
 
   if (logsTable) {
-    const labels = {
+    const typeLabels = {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
       delete: 'Apagado',
+      move: 'Mudou de secção',
       transfer_in: 'Transferência (entrada)',
       transfer_out: 'Transferência (saída)'
     };
@@ -856,7 +1003,8 @@ function renderResidentsChest() {
     logsTable.innerHTML = residentsChestLogs.length
       ? residentsChestLogs.map((log) => `
         <tr>
-          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td class="chest-${escapeHTML(log.changeType)}">${typeLabels[log.changeType] || log.changeType}</td>
+          <td>${log.compartment ? escapeHTML(compartmentLabels.residentsChest[log.compartment] || log.compartment) : '—'}</td>
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
@@ -866,7 +1014,7 @@ function renderResidentsChest() {
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="9">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -874,12 +1022,16 @@ function renderOfficials() {
   const table = $('#officialsChestTable');
   const logsTable = $('#officialsChestLogsTable');
 
+  renderCompartmentTabs('#officialsChestCompartmentTabs', 'officialsChest', officialsChestItems);
+
   if (table) {
     const canModifyOfficialsChest = isAdmin() || isOfficials();
     const state = listUIState.officialsChest;
     const query = state.query.trim();
-    const filtered = officialsChestItems.filter((item) => textMatches([item.name], query));
+    const inCompartment = officialsChestItems.filter((item) => (item.compartment || 'A') === state.compartment);
+    const filtered = inCompartment.filter((item) => textMatches([item.name], query));
     const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+    const labels = compartmentLabels.officialsChest;
 
     table.innerHTML = pageItems.length
       ? pageItems.map((item) => `
@@ -896,6 +1048,7 @@ function renderOfficials() {
             <div class="chest-card-actions admin-or-officials">
               <button class="btn secondary mini" type="button" data-officials-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-officials-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-officials-chest-move="${item.id}">↕ Mover para ${escapeHTML(labels[otherCompartment(item.compartment)])}</button>
               <button class="btn secondary mini" type="button" data-officials-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn secondary mini" type="button" data-officials-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn secondary mini" type="button" data-officials-chest-image="${item.id}">🖼 Imagem</button>
@@ -904,17 +1057,18 @@ function renderOfficials() {
           ` : ''}
         </div>
       `).join('')
-      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú Oficiais ainda não tem itens.'}</div>`;
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : `O ${labels[state.compartment]} ainda não tem itens.`}</div>`;
 
     renderPager('#officialsChestPager', 'officialsChest', totalPages, safePage);
   }
 
   if (logsTable) {
-    const labels = {
+    const typeLabels = {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
       delete: 'Apagado',
+      move: 'Mudou de secção',
       transfer_in: 'Transferência (entrada)',
       transfer_out: 'Transferência (saída)'
     };
@@ -922,7 +1076,8 @@ function renderOfficials() {
     logsTable.innerHTML = officialsChestLogs.length
       ? officialsChestLogs.map((log) => `
         <tr>
-          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td class="chest-${escapeHTML(log.changeType)}">${typeLabels[log.changeType] || log.changeType}</td>
+          <td>${log.compartment ? escapeHTML(compartmentLabels.officialsChest[log.compartment] || log.compartment) : '—'}</td>
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
@@ -932,7 +1087,7 @@ function renderOfficials() {
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="9">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -940,11 +1095,15 @@ function renderOrdersChest() {
   const table = $('#ordersChestTable');
   const logsTable = $('#ordersChestLogsTable');
 
+  renderCompartmentTabs('#ordersChestCompartmentTabs', 'ordersChest', ordersChestItems);
+
   if (table) {
     const state = listUIState.ordersChest;
     const query = state.query.trim();
-    const filtered = ordersChestItems.filter((item) => textMatches([item.name], query));
+    const inCompartment = ordersChestItems.filter((item) => (item.compartment || 'A') === state.compartment);
+    const filtered = inCompartment.filter((item) => textMatches([item.name], query));
     const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+    const labels = compartmentLabels.ordersChest;
 
     table.innerHTML = pageItems.length
       ? pageItems.map((item) => `
@@ -961,6 +1120,7 @@ function renderOrdersChest() {
             <div class="chest-card-actions">
               <button class="btn secondary mini" type="button" data-orders-chest-add="${item.id}">+ Entrada</button>
               <button class="btn secondary mini" type="button" data-orders-chest-remove="${item.id}">− Saída</button>
+              <button class="btn secondary mini" type="button" data-orders-chest-move="${item.id}">↕ Mover para ${escapeHTML(labels[otherCompartment(item.compartment)])}</button>
               <button class="btn secondary mini" type="button" data-orders-chest-transfer="${item.id}">⇄ Transferir</button>
               <button class="btn secondary mini" type="button" data-orders-chest-min-stock="${item.id}">Stock mínimo</button>
               <button class="btn secondary mini" type="button" data-orders-chest-image="${item.id}">🖼 Imagem</button>
@@ -969,17 +1129,18 @@ function renderOrdersChest() {
           ` : ''}
         </div>
       `).join('')
-      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú de Encomendas ainda não tem itens.'}</div>`;
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : `O ${labels[state.compartment]} ainda não tem itens.`}</div>`;
 
     renderPager('#ordersChestPager', 'ordersChest', totalPages, safePage);
   }
 
   if (logsTable) {
-    const labels = {
+    const typeLabels = {
       add: 'Entrada',
       remove: 'Saída',
       create: 'Criado',
       delete: 'Apagado',
+      move: 'Mudou de secção',
       transfer_in: 'Transferência (entrada)',
       transfer_out: 'Transferência (saída)'
     };
@@ -987,7 +1148,8 @@ function renderOrdersChest() {
     logsTable.innerHTML = ordersChestLogs.length
       ? ordersChestLogs.map((log) => `
         <tr>
-          <td class="chest-${escapeHTML(log.changeType)}">${labels[log.changeType] || log.changeType}</td>
+          <td class="chest-${escapeHTML(log.changeType)}">${typeLabels[log.changeType] || log.changeType}</td>
+          <td>${log.compartment ? escapeHTML(compartmentLabels.ordersChest[log.compartment] || log.compartment) : '—'}</td>
           <td>${escapeHTML(log.itemName)}</td>
           <td>${log.quantity}</td>
           <td>${escapeHTML(log.actorUsername)}</td>
@@ -997,7 +1159,7 @@ function renderOrdersChest() {
           <td>${formatDate(log.createdAt)}</td>
         </tr>
       `).join('')
-      : '<tr><td colspan="8">Ainda não existem movimentos.</td></tr>';
+      : '<tr><td colspan="9">Ainda não existem movimentos.</td></tr>';
   }
 }
 
@@ -1796,6 +1958,7 @@ async function loadChest() {
   const data = await request('/api/chest');
   chestItems = data.items;
   chestLogs = data.logs;
+  compartmentLabels.chest = data.compartmentLabels || compartmentLabels.chest;
   renderChest();
   await loadStockAlerts();
 }
@@ -1812,6 +1975,7 @@ async function loadResidentsChest() {
   const data = await request('/api/residents-chest');
   residentsChestItems = data.items;
   residentsChestLogs = data.logs;
+  compartmentLabels.residentsChest = data.compartmentLabels || compartmentLabels.residentsChest;
   renderResidentsChest();
   await loadStockAlerts();
 }
@@ -1828,6 +1992,7 @@ async function loadOfficials() {
   const data = await request('/api/officials-chest');
   officialsChestItems = data.items;
   officialsChestLogs = data.logs;
+  compartmentLabels.officialsChest = data.compartmentLabels || compartmentLabels.officialsChest;
   renderOfficials();
   await loadStockAlerts();
 }
@@ -1844,6 +2009,7 @@ async function loadOrdersChest() {
   const data = await request('/api/orders-chest');
   ordersChestItems = data.items;
   ordersChestLogs = data.logs;
+  compartmentLabels.ordersChest = data.compartmentLabels || compartmentLabels.ordersChest;
   renderOrdersChest();
   await loadStockAlerts();
 }
@@ -1874,7 +2040,7 @@ function renderStockAlerts() {
     <div class="stock-alert-row">
       <div>
         <strong>${escapeHTML(alert.name)}</strong>
-        <small>${escapeHTML(alert.chestLabel)}</small>
+        <small>${escapeHTML(alert.chestLabel)} · ${escapeHTML(alert.compartmentLabel || alert.compartment || '')}</small>
       </div>
       <div class="stock-alert-numbers">
         <span class="stock-alert-quantity">${alert.quantity}</span>
@@ -2365,6 +2531,7 @@ $('#editRecipeForm').addEventListener('submit', async (event) => {
 $('#openChestCreateDialog').addEventListener('click', () => {
   $('#chestCreateForm').reset();
   $('#chestCreateError').textContent = '';
+  populateCompartmentSelect('#chestItemCompartment', 'chest');
   $('#chestCreateDialog').showModal();
 });
 
@@ -2380,7 +2547,10 @@ $('#chestCreateForm').addEventListener('submit', async (event) => {
   try {
     await request('/api/chest', {
       method: 'POST',
-      body: JSON.stringify({ name: $('#chestItemName').value })
+      body: JSON.stringify({
+        name: $('#chestItemName').value,
+        compartment: $('#chestItemCompartment').value
+      })
     });
 
     $('#chestCreateDialog').close();
@@ -2422,6 +2592,7 @@ $('#chestActionForm').addEventListener('submit', async (event) => {
 $('#openResidentsChestCreateDialog').addEventListener('click', () => {
   $('#residentsChestCreateForm').reset();
   $('#residentsChestCreateError').textContent = '';
+  populateCompartmentSelect('#residentsChestItemCompartment', 'residentsChest');
   $('#residentsChestCreateDialog').showModal();
 });
 
@@ -2437,7 +2608,10 @@ $('#residentsChestCreateForm').addEventListener('submit', async (event) => {
   try {
     await request('/api/residents-chest', {
       method: 'POST',
-      body: JSON.stringify({ name: $('#residentsChestItemName').value })
+      body: JSON.stringify({
+        name: $('#residentsChestItemName').value,
+        compartment: $('#residentsChestItemCompartment').value
+      })
     });
 
     $('#residentsChestCreateDialog').close();
@@ -2479,6 +2653,7 @@ $('#residentsChestActionForm').addEventListener('submit', async (event) => {
 $('#openOfficialsChestCreateDialog').addEventListener('click', () => {
   $('#officialsChestCreateForm').reset();
   $('#officialsChestCreateError').textContent = '';
+  populateCompartmentSelect('#officialsChestItemCompartment', 'officialsChest');
   $('#officialsChestCreateDialog').showModal();
 });
 
@@ -2494,7 +2669,10 @@ $('#officialsChestCreateForm').addEventListener('submit', async (event) => {
   try {
     await request('/api/officials-chest', {
       method: 'POST',
-      body: JSON.stringify({ name: $('#officialsChestItemName').value })
+      body: JSON.stringify({
+        name: $('#officialsChestItemName').value,
+        compartment: $('#officialsChestItemCompartment').value
+      })
     });
 
     $('#officialsChestCreateDialog').close();
@@ -2536,6 +2714,7 @@ $('#officialsChestActionForm').addEventListener('submit', async (event) => {
 $('#openOrdersChestCreateDialog').addEventListener('click', () => {
   $('#ordersChestCreateForm').reset();
   $('#ordersChestCreateError').textContent = '';
+  populateCompartmentSelect('#ordersChestItemCompartment', 'ordersChest');
   $('#ordersChestCreateDialog').showModal();
 });
 
@@ -2551,7 +2730,10 @@ $('#ordersChestCreateForm').addEventListener('submit', async (event) => {
   try {
     await request('/api/orders-chest', {
       method: 'POST',
-      body: JSON.stringify({ name: $('#ordersChestItemName').value })
+      body: JSON.stringify({
+        name: $('#ordersChestItemName').value,
+        compartment: $('#ordersChestItemCompartment').value
+      })
     });
 
     $('#ordersChestCreateDialog').close();
@@ -2992,6 +3174,22 @@ document.addEventListener('click', async (event) => {
   }
 });
 
+$('#renameChestCompartments')?.addEventListener('click', () => {
+  renameCompartments('/api/chest', 'chest', loadChest);
+});
+
+$('#renameResidentsChestCompartments')?.addEventListener('click', () => {
+  renameCompartments('/api/residents-chest', 'residentsChest', loadResidentsChest);
+});
+
+$('#renameOfficialsChestCompartments')?.addEventListener('click', () => {
+  renameCompartments('/api/officials-chest', 'officialsChest', loadOfficials);
+});
+
+$('#renameOrdersChestCompartments')?.addEventListener('click', () => {
+  renameCompartments('/api/orders-chest', 'ordersChest', loadOrdersChest);
+});
+
 document.addEventListener('click', async (event) => {
   const userStatus = event.target.closest('[data-user-status]');
   const userResetPassword = event.target.closest('[data-user-reset-password]');
@@ -3003,6 +3201,7 @@ document.addEventListener('click', async (event) => {
   const priceButton = event.target.closest('[data-ammunation-prices]');
   const chestAdd = event.target.closest('[data-chest-add]');
   const chestRemove = event.target.closest('[data-chest-remove]');
+  const chestMove = event.target.closest('[data-chest-move]');
   const chestDelete = event.target.closest('[data-chest-delete]');
   const chestTransfer = event.target.closest('[data-chest-transfer]');
   const chestMinStock = event.target.closest('[data-chest-min-stock]');
@@ -3146,6 +3345,11 @@ document.addEventListener('click', async (event) => {
       return;
     }
 
+    if (chestMove) {
+      await moveChestItemCompartment('/api/chest', 'chest', chestItems, Number(chestMove.dataset.chestMove), loadChest);
+      return;
+    }
+
     if (chestDelete) {
       const id = Number(chestDelete.dataset.chestDelete);
 
@@ -3174,6 +3378,7 @@ document.addEventListener('click', async (event) => {
 
     const residentsChestAdd = event.target.closest('[data-residents-chest-add]');
     const residentsChestRemove = event.target.closest('[data-residents-chest-remove]');
+    const residentsChestMove = event.target.closest('[data-residents-chest-move]');
     const residentsChestDelete = event.target.closest('[data-residents-chest-delete]');
     const residentsChestTransfer = event.target.closest('[data-residents-chest-transfer]');
     const residentsChestMinStock = event.target.closest('[data-residents-chest-min-stock]');
@@ -3186,6 +3391,11 @@ document.addEventListener('click', async (event) => {
 
     if (residentsChestRemove) {
       openResidentsMovement(Number(residentsChestRemove.dataset.residentsChestRemove), 'remove');
+      return;
+    }
+
+    if (residentsChestMove) {
+      await moveChestItemCompartment('/api/residents-chest', 'residentsChest', residentsChestItems, Number(residentsChestMove.dataset.residentsChestMove), loadResidentsChest);
       return;
     }
 
@@ -3217,6 +3427,7 @@ document.addEventListener('click', async (event) => {
 
     const officialsChestAdd = event.target.closest('[data-officials-chest-add]');
     const officialsChestRemove = event.target.closest('[data-officials-chest-remove]');
+    const officialsChestMove = event.target.closest('[data-officials-chest-move]');
     const officialsChestDelete = event.target.closest('[data-officials-chest-delete]');
     const officialsChestTransfer = event.target.closest('[data-officials-chest-transfer]');
     const officialsChestMinStock = event.target.closest('[data-officials-chest-min-stock]');
@@ -3229,6 +3440,11 @@ document.addEventListener('click', async (event) => {
 
     if (officialsChestRemove) {
       openOfficialsMovement(Number(officialsChestRemove.dataset.officialsChestRemove), 'remove');
+      return;
+    }
+
+    if (officialsChestMove) {
+      await moveChestItemCompartment('/api/officials-chest', 'officialsChest', officialsChestItems, Number(officialsChestMove.dataset.officialsChestMove), loadOfficials);
       return;
     }
 
@@ -3260,6 +3476,7 @@ document.addEventListener('click', async (event) => {
 
     const ordersChestAdd = event.target.closest('[data-orders-chest-add]');
     const ordersChestRemove = event.target.closest('[data-orders-chest-remove]');
+    const ordersChestMove = event.target.closest('[data-orders-chest-move]');
     const ordersChestDelete = event.target.closest('[data-orders-chest-delete]');
     const ordersChestTransfer = event.target.closest('[data-orders-chest-transfer]');
     const ordersChestMinStock = event.target.closest('[data-orders-chest-min-stock]');
@@ -3272,6 +3489,11 @@ document.addEventListener('click', async (event) => {
 
     if (ordersChestRemove) {
       openOrdersChestMovement(Number(ordersChestRemove.dataset.ordersChestRemove), 'remove');
+      return;
+    }
+
+    if (ordersChestMove) {
+      await moveChestItemCompartment('/api/orders-chest', 'ordersChest', ordersChestItems, Number(ordersChestMove.dataset.ordersChestMove), loadOrdersChest);
       return;
     }
 
