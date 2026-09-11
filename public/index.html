@@ -157,6 +157,11 @@
             </div>
           </div>
 
+          <div class="compartment-bar">
+            <div id="chestCompartmentTabs" class="compartment-tabs"></div>
+            <button id="renameChestCompartments" class="btn secondary mini admin-only" type="button">✎ Nomes das secções</button>
+          </div>
+
           <div id="chestTable" class="chest-grid"></div>
           <div id="chestPager" class="pager"></div>
         </section>
@@ -174,6 +179,7 @@
               <thead>
                 <tr>
                   <th>Tipo</th>
+                  <th>Secção</th>
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
@@ -202,6 +208,11 @@
             </div>
           </div>
 
+          <div class="compartment-bar">
+            <div id="residentsChestCompartmentTabs" class="compartment-tabs"></div>
+            <button id="renameResidentsChestCompartments" class="btn secondary mini" type="button">✎ Nomes das secções</button>
+          </div>
+
           <div id="residentsChestTable" class="chest-grid"></div>
           <div id="residentsChestPager" class="pager"></div>
         </section>
@@ -219,6 +230,7 @@
               <thead>
                 <tr>
                   <th>Tipo</th>
+                  <th>Secção</th>
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
@@ -247,6 +259,11 @@
             </div>
           </div>
 
+          <div class="compartment-bar">
+            <div id="officialsChestCompartmentTabs" class="compartment-tabs"></div>
+            <button id="renameOfficialsChestCompartments" class="btn secondary mini" type="button">✎ Nomes das secções</button>
+          </div>
+
           <div id="officialsChestTable" class="chest-grid"></div>
           <div id="officialsChestPager" class="pager"></div>
         </section>
@@ -264,6 +281,7 @@
               <thead>
                 <tr>
                   <th>Tipo</th>
+                  <th>Secção</th>
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
@@ -292,6 +310,11 @@
             </div>
           </div>
 
+          <div class="compartment-bar">
+            <div id="ordersChestCompartmentTabs" class="compartment-tabs"></div>
+            <button id="renameOrdersChestCompartments" class="btn secondary mini" type="button">✎ Nomes das secções</button>
+          </div>
+
           <div id="ordersChestTable" class="chest-grid"></div>
           <div id="ordersChestPager" class="pager"></div>
         </section>
@@ -309,6 +332,7 @@
               <thead>
                 <tr>
                   <th>Tipo</th>
+                  <th>Secção</th>
                   <th>Item</th>
                   <th>Quantidade</th>
                   <th>Por</th>
@@ -774,6 +798,11 @@
         <input id="chestItemName" minlength="2" maxlength="80" required>
       </label>
 
+      <label class="field">
+        Secção do Baú
+        <select id="chestItemCompartment"></select>
+      </label>
+
       <div id="chestCreateError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
@@ -820,6 +849,11 @@
       <label class="field">
         Nome do item
         <input id="residentsChestItemName" minlength="2" maxlength="80" required>
+      </label>
+
+      <label class="field">
+        Secção do Baú
+        <select id="residentsChestItemCompartment"></select>
       </label>
 
       <div id="residentsChestCreateError" class="error" aria-live="polite"></div>
@@ -870,6 +904,11 @@
         <input id="officialsChestItemName" minlength="2" maxlength="80" required>
       </label>
 
+      <label class="field">
+        Secção do Baú
+        <select id="officialsChestItemCompartment"></select>
+      </label>
+
       <div id="officialsChestCreateError" class="error" aria-live="polite"></div>
 
       <div class="modal-actions">
@@ -916,6 +955,11 @@
       <label class="field">
         Nome do item
         <input id="ordersChestItemName" minlength="2" maxlength="80" required>
+      </label>
+
+      <label class="field">
+        Secção do Baú
+        <select id="ordersChestItemCompartment"></select>
       </label>
 
       <div id="ordersChestCreateError" class="error" aria-live="polite"></div>
