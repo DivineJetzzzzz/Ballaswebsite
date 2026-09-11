@@ -371,9 +371,42 @@ tbody tr:hover {
   align-items: center;
 }
 
-.orders-search-input {
+.orders-search-input,
+.list-search-input {
   width: 240px;
   max-width: 100%;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.pager:empty {
+  display: none;
+  margin: 0;
+}
+
+.pager-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.table-loading,
+.chest-grid-loading {
+  color: var(--muted);
+  text-align: center;
+}
+
+.chest-grid-loading {
+  padding: 34px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
 }
 
 .badge {
@@ -909,8 +942,18 @@ dialog.order-modal {
   }
 
   .actions .btn,
-  .actions select {
+  .actions select,
+  .actions input {
     width: 100%;
+  }
+
+  .orders-search-input,
+  .list-search-input {
+    width: 100%;
+  }
+
+  .pager {
+    flex-wrap: wrap;
   }
 }
 
@@ -1111,4 +1154,103 @@ dialog.order-modal {
   font-size: 18px;
   font-weight: 850;
   color: var(--danger);
+}
+
+/* Toasts — substituem os antigos alert()/confirm() do browser por um
+   feedback discreto e consistente com o tema da app. */
+.toast-container {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(88vw, 360px);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+  cursor: pointer;
+  animation: toast-in 0.22s ease both;
+}
+
+.toast.success {
+  border-color: rgba(114, 241, 184, 0.4);
+  background: rgba(23, 16, 37, 0.97);
+  color: var(--success);
+}
+
+.toast.error {
+  border-color: rgba(255, 134, 162, 0.4);
+  background: rgba(23, 16, 37, 0.97);
+  color: #ffb9c9;
+}
+
+.toast.info {
+  border-color: var(--line);
+  background: rgba(23, 16, 37, 0.97);
+  color: var(--accent-light);
+}
+
+.toast.is-leaving {
+  animation: toast-out 0.18s ease forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .toast-container {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    width: auto;
+  }
+}
+
+/* Diálogos genéricos de confirmação e de dados (substituem confirm()/prompt()) */
+#promptDialogFields .field {
+  margin-top: 14px;
+}
+
+#promptDialogFields .field:first-child {
+  margin-top: 0;
+}
+
+#confirmDialogMessage {
+  color: var(--muted);
 }
