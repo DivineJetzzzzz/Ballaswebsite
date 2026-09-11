@@ -36,6 +36,269 @@ let auditLogs = [];
 let publicOrders = [];
 let publicOrderDetailId = null;
 
+// ---------------------------------------------------------------------------
+// Utilitários de interface: toasts, diálogos de confirmação/dados, pesquisa e
+// paginação client-side reutilizados por várias páginas do painel. Substituem
+// os antigos alert()/confirm()/prompt() nativos do browser.
+// ---------------------------------------------------------------------------
+
+const LIST_PAGE_SIZE = 10;
+
+// Estado (pesquisa + página atual) de cada lista que suporta pesquisa e
+// paginação no lado do cliente. As listas já vêm completas da API, por isso
+// não é preciso voltar a pedir dados ao servidor ao pesquisar ou paginar.
+const listUIState = {
+  users: { query: '', page: 1 },
+  recipes: { query: '', page: 1 },
+  chest: { query: '', page: 1 },
+  residentsChest: { query: '', page: 1 },
+  officialsChest: { query: '', page: 1 },
+  ordersChest: { query: '', page: 1 },
+  orders: { query: '', page: 1 },
+  ammunationOrders: { query: '', page: 1 },
+  publicOrders: { query: '', page: 1 },
+  auditLogs: { query: '', page: 1 }
+};
+
+function textMatches(parts, query) {
+  if (!query) return true;
+
+  const haystack = parts.filter(Boolean).join(' ').toLowerCase();
+
+  return haystack.includes(query.trim().toLowerCase());
+}
+
+function paginateList(items, page, pageSize = LIST_PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * pageSize;
+
+  return { pageItems: items.slice(start, start + pageSize), totalPages, safePage };
+}
+
+function renderPager(containerSelector, listKey, totalPages, safePage) {
+  const container = $(containerSelector);
+
+  if (!container) return;
+
+  const state = listUIState[listKey];
+  if (state) state.page = safePage;
+
+  if (totalPages <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = `
+    <button class="btn secondary mini" type="button" data-pager="${listKey}" data-pager-action="prev" ${safePage <= 1 ? 'disabled' : ''}>‹ Anterior</button>
+    <span class="pager-status">Página ${safePage} de ${totalPages}</span>
+    <button class="btn secondary mini" type="button" data-pager="${listKey}" data-pager-action="next" ${safePage >= totalPages ? 'disabled' : ''}>Seguinte ›</button>
+  `;
+}
+
+// Mapa de nome-da-lista -> função de render, usado pelos botões de paginação
+// e pelos campos de pesquisa. As funções são "function" declarations, por
+// isso já existem (hoisting) mesmo estando definidas mais abaixo no ficheiro.
+const LIST_RENDERERS = {
+  get users() { return renderUsers; },
+  get recipes() { return renderRecipes; },
+  get chest() { return renderChest; },
+  get residentsChest() { return renderResidentsChest; },
+  get officialsChest() { return renderOfficials; },
+  get ordersChest() { return renderOrdersChest; },
+  get orders() { return renderOrders; },
+  get ammunationOrders() { return renderAmmunationOrders; },
+  get publicOrders() { return renderPublicOrders; },
+  get auditLogs() { return renderAuditLogs; }
+};
+
+document.addEventListener('click', (event) => {
+  const pagerButton = event.target.closest('[data-pager]');
+
+  if (!pagerButton) return;
+
+  const key = pagerButton.dataset.pager;
+  const state = listUIState[key];
+
+  if (!state) return;
+
+  state.page += pagerButton.dataset.pagerAction === 'next' ? 1 : -1;
+  LIST_RENDERERS[key]?.();
+});
+
+function bindListSearch(inputSelector, listKey) {
+  const input = $(inputSelector);
+
+  if (!input) return;
+
+  input.addEventListener('input', () => {
+    const state = listUIState[listKey];
+
+    if (!state) return;
+
+    state.query = input.value;
+    state.page = 1;
+    LIST_RENDERERS[listKey]?.();
+  });
+}
+
+function tableLoadingRow(colspan, message = 'A carregar...') {
+  return `<tr><td colspan="${colspan}" class="table-loading">${escapeHTML(message)}</td></tr>`;
+}
+
+function setTableLoading(selector, colspan, message) {
+  const table = $(selector);
+  if (table) table.innerHTML = tableLoadingRow(colspan, message);
+}
+
+function setGridLoading(selector, message = 'A carregar...') {
+  const grid = $(selector);
+  if (grid) grid.innerHTML = `<div class="chest-grid-loading">${escapeHTML(message)}</div>`;
+}
+
+// Notificações discretas no canto do ecrã, para erros e confirmações de
+// sucesso, em vez do alert() nativo do browser.
+function showToast(message, type = 'success', duration = 4200) {
+  const container = $('#toastContainer');
+
+  if (!container || !message) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  toast.textContent = message;
+
+  const dismiss = () => {
+    toast.classList.add('is-leaving');
+    toast.addEventListener('animationend', () => toast.remove(), { once: true });
+    setTimeout(() => toast.remove(), 400);
+  };
+
+  const timer = setTimeout(dismiss, duration);
+  toast.addEventListener('click', () => {
+    clearTimeout(timer);
+    dismiss();
+  });
+
+  container.appendChild(toast);
+}
+
+// Diálogo de confirmação reutilizável, substitui o confirm() nativo.
+function openConfirmDialog({ title = 'Confirmar ação', message, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', danger = false }) {
+  return new Promise((resolve) => {
+    const dialog = $('#confirmDialog');
+    const okButton = $('#confirmDialogOk');
+    const cancelButton = $('#confirmDialogCancel');
+
+    $('#confirmDialogTitle').textContent = title;
+    $('#confirmDialogMessage').textContent = message;
+    okButton.textContent = confirmLabel;
+    cancelButton.textContent = cancelLabel;
+    okButton.classList.toggle('danger', danger);
+    okButton.classList.toggle('primary', !danger);
+
+    let settled = false;
+
+    function finish(value) {
+      if (settled) return;
+      settled = true;
+      okButton.removeEventListener('click', onOk);
+      cancelButton.removeEventListener('click', onCancel);
+      dialog.removeEventListener('close', onDialogClose);
+      resolve(value);
+    }
+
+    function onOk() {
+      finish(true);
+      dialog.close();
+    }
+
+    function onCancel() {
+      finish(false);
+      dialog.close();
+    }
+
+    function onDialogClose() {
+      finish(false);
+    }
+
+    okButton.addEventListener('click', onOk);
+    cancelButton.addEventListener('click', onCancel);
+    dialog.addEventListener('close', onDialogClose);
+    dialog.showModal();
+  });
+}
+
+function confirmDialog(message, options = {}) {
+  return openConfirmDialog({ message, ...options });
+}
+
+// Diálogo genérico com campos, substitui o prompt() nativo (pode ter mais
+// do que um campo, ex.: preço limpo + preço sujo).
+function openPromptDialog({ title = 'Confirmar', fields, confirmLabel = 'Confirmar', danger = false }) {
+  return new Promise((resolve) => {
+    const dialog = $('#promptDialog');
+    const form = $('#promptDialogForm');
+    const fieldsContainer = $('#promptDialogFields');
+    const errorElement = $('#promptDialogError');
+    const okButton = $('#promptDialogSubmit');
+    const cancelButton = $('#promptDialogCancel');
+
+    $('#promptDialogTitle').textContent = title;
+    errorElement.textContent = '';
+    okButton.textContent = confirmLabel;
+    okButton.classList.toggle('danger', danger);
+    okButton.classList.toggle('primary', !danger);
+
+    fieldsContainer.innerHTML = fields.map((field) => `
+      <label class="field">
+        ${escapeHTML(field.label)}
+        ${field.type === 'textarea'
+          ? `<textarea id="promptField_${field.id}" ${field.required ? 'required' : ''} maxlength="${field.maxlength || 1000}" placeholder="${escapeHTML(field.placeholder || '')}">${escapeHTML(field.value ?? '')}</textarea>`
+          : `<input id="promptField_${field.id}" type="${field.type || 'text'}" value="${escapeHTML(field.value ?? '')}" ${field.required ? 'required' : ''} ${field.min !== undefined ? `min="${field.min}"` : ''} step="${field.step || 'any'}">`}
+      </label>
+    `).join('');
+
+    let settled = false;
+
+    function finish(value) {
+      if (settled) return;
+      settled = true;
+      form.removeEventListener('submit', onSubmit);
+      cancelButton.removeEventListener('click', onCancelClick);
+      dialog.removeEventListener('close', onDialogClose);
+      resolve(value);
+    }
+
+    function onSubmit(event) {
+      event.preventDefault();
+
+      const values = {};
+      for (const field of fields) {
+        values[field.id] = document.getElementById(`promptField_${field.id}`).value;
+      }
+
+      finish(values);
+      dialog.close();
+    }
+
+    function onCancelClick() {
+      finish(null);
+      dialog.close();
+    }
+
+    function onDialogClose() {
+      finish(null);
+    }
+
+    form.addEventListener('submit', onSubmit);
+    cancelButton.addEventListener('click', onCancelClick);
+    dialog.addEventListener('close', onDialogClose);
+    dialog.showModal();
+    fieldsContainer.querySelector('input, textarea')?.focus();
+  });
+}
+
 async function request(url, options = {}) {
   const response = await fetch(url, {
     headers: {
@@ -280,8 +543,18 @@ function renderUsers() {
 
   if (!table) return;
 
-  table.innerHTML = users.length
-    ? users.map((user, index) => {
+  const state = listUIState.users;
+  const query = state.query.trim();
+
+  const filtered = users.filter((user) => textMatches(
+    [user.username, getRoleLabel(user.role)],
+    query
+  ));
+
+  const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((user, index) => {
       const self = user.id === currentUser?.id;
       const roleLabel = getRoleLabel(user.role);
 
@@ -314,7 +587,9 @@ function renderUsers() {
         </tr>
       `;
     }).join('')
-    : '<tr><td colspan="5">Ainda não existem utilizadores.</td></tr>';
+    : `<tr><td colspan="5">${query ? 'Nenhum utilizador encontrado para essa pesquisa.' : 'Ainda não existem utilizadores.'}</td></tr>`;
+
+  renderPager('#usersPager', 'users', totalPages, safePage);
 }
 
 function materialOptions(selectedId = '') {
@@ -405,8 +680,18 @@ function renderRecipes() {
 
   if (!table) return;
 
-  table.innerHTML = recipes.length
-    ? recipes.map((recipe) => {
+  const state = listUIState.recipes;
+  const query = state.query.trim();
+
+  const filtered = recipes.filter((recipe) => textMatches(
+    [recipe.name, recipe.category],
+    query
+  ));
+
+  const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((recipe) => {
       const materialsText = recipe.materials.length
         ? recipe.materials.map((material) => `
           <span>${escapeHTML(material.name)} × ${material.quantity}</span>
@@ -449,7 +734,9 @@ function renderRecipes() {
         </tr>
       `;
     }).join('')
-    : '<tr><td colspan="6">Ainda não existem receitas nesta categoria.</td></tr>';
+    : `<tr><td colspan="6">${query ? 'Nenhuma receita encontrada para essa pesquisa.' : 'Ainda não existem receitas nesta categoria.'}</td></tr>`;
+
+  renderPager('#recipesPager', 'recipes', totalPages, safePage);
 }
 
 function renderChest() {
@@ -457,8 +744,13 @@ function renderChest() {
   const logsTable = $('#chestLogsTable');
 
   if (table) {
-    table.innerHTML = chestItems.length
-      ? chestItems.map((item, index) => `
+    const state = listUIState.chest;
+    const query = state.query.trim();
+    const filtered = chestItems.filter((item) => textMatches([item.name], query));
+    const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+    table.innerHTML = pageItems.length
+      ? pageItems.map((item, index) => `
         <div class="chest-card fade-in-row ${item.lowStock ? 'chest-card-low-stock' : ''}" style="--fade-index: ${index}">
           ${item.imageUrl ? `<img class="chest-card-image" src="${escapeHTML(item.imageUrl)}" alt="${escapeHTML(item.name)}" loading="lazy">` : ''}
           <div class="chest-card-head">
@@ -480,7 +772,9 @@ function renderChest() {
           ` : ''}
         </div>
       `).join('')
-      : '<div class="chest-grid-empty">O Baú 113 ainda não tem itens.</div>';
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú 113 ainda não tem itens.'}</div>`;
+
+    renderPager('#chestPager', 'chest', totalPages, safePage);
   }
 
   if (logsTable) {
@@ -516,9 +810,13 @@ function renderResidentsChest() {
 
   if (table) {
     const canModifyResidentsChest = isAdmin() || currentUser?.role === 'resident_chief';
+    const state = listUIState.residentsChest;
+    const query = state.query.trim();
+    const filtered = residentsChestItems.filter((item) => textMatches([item.name], query));
+    const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
 
-    table.innerHTML = residentsChestItems.length
-      ? residentsChestItems.map((item) => `
+    table.innerHTML = pageItems.length
+      ? pageItems.map((item) => `
         <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           ${item.imageUrl ? `<img class="chest-card-image" src="${escapeHTML(item.imageUrl)}" alt="${escapeHTML(item.name)}" loading="lazy">` : ''}
           <div class="chest-card-head">
@@ -540,7 +838,9 @@ function renderResidentsChest() {
           ` : ''}
         </div>
       `).join('')
-      : '<div class="chest-grid-empty">O Baú Moradores ainda não tem itens.</div>';
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú Moradores ainda não tem itens.'}</div>`;
+
+    renderPager('#residentsChestPager', 'residentsChest', totalPages, safePage);
   }
 
   if (logsTable) {
@@ -576,9 +876,13 @@ function renderOfficials() {
 
   if (table) {
     const canModifyOfficialsChest = isAdmin() || isOfficials();
+    const state = listUIState.officialsChest;
+    const query = state.query.trim();
+    const filtered = officialsChestItems.filter((item) => textMatches([item.name], query));
+    const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
 
-    table.innerHTML = officialsChestItems.length
-      ? officialsChestItems.map((item) => `
+    table.innerHTML = pageItems.length
+      ? pageItems.map((item) => `
         <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           ${item.imageUrl ? `<img class="chest-card-image" src="${escapeHTML(item.imageUrl)}" alt="${escapeHTML(item.name)}" loading="lazy">` : ''}
           <div class="chest-card-head">
@@ -600,7 +904,9 @@ function renderOfficials() {
           ` : ''}
         </div>
       `).join('')
-      : '<div class="chest-grid-empty">O Baú Oficiais ainda não tem itens.</div>';
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú Oficiais ainda não tem itens.'}</div>`;
+
+    renderPager('#officialsChestPager', 'officialsChest', totalPages, safePage);
   }
 
   if (logsTable) {
@@ -635,8 +941,13 @@ function renderOrdersChest() {
   const logsTable = $('#ordersChestLogsTable');
 
   if (table) {
-    table.innerHTML = ordersChestItems.length
-      ? ordersChestItems.map((item) => `
+    const state = listUIState.ordersChest;
+    const query = state.query.trim();
+    const filtered = ordersChestItems.filter((item) => textMatches([item.name], query));
+    const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+    table.innerHTML = pageItems.length
+      ? pageItems.map((item) => `
         <div class="chest-card ${item.lowStock ? 'chest-card-low-stock' : ''}">
           ${item.imageUrl ? `<img class="chest-card-image" src="${escapeHTML(item.imageUrl)}" alt="${escapeHTML(item.name)}" loading="lazy">` : ''}
           <div class="chest-card-head">
@@ -658,7 +969,9 @@ function renderOrdersChest() {
           ` : ''}
         </div>
       `).join('')
-      : '<div class="chest-grid-empty">O Baú de Encomendas ainda não tem itens.</div>';
+      : `<div class="chest-grid-empty">${query ? 'Nenhum item encontrado para essa pesquisa.' : 'O Baú de Encomendas ainda não tem itens.'}</div>`;
+
+    renderPager('#ordersChestPager', 'ordersChest', totalPages, safePage);
   }
 
   if (logsTable) {
@@ -754,11 +1067,15 @@ function renderOrders() {
     .filter((order) => !isMoneyOrder(order))
     .filter((order) => orderMatchesSearch(order, query));
 
-  table.innerHTML = craftingOrders.length
-    ? craftingOrders.map((order, index) => renderOrderRow(order, index)).join('')
+  const { pageItems, totalPages, safePage } = paginateList(craftingOrders, listUIState.orders.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((order, index) => renderOrderRow(order, index)).join('')
     : `<tr><td colspan="7">${
       query ? 'Nenhuma encomenda encontrada para essa pesquisa.' : 'Ainda não existem encomendas.'
     }</td></tr>`;
+
+  renderPager('#ordersPager', 'orders', totalPages, safePage);
 }
 
 function renderAmmunationOrders() {
@@ -766,11 +1083,20 @@ function renderAmmunationOrders() {
 
   if (!table) return;
 
-  const ammunationOrdersList = orders.filter((order) => isMoneyOrder(order));
+  const state = listUIState.ammunationOrders;
+  const query = state.query.trim();
 
-  table.innerHTML = ammunationOrdersList.length
-    ? ammunationOrdersList.map((order, index) => renderOrderRow(order, index)).join('')
-    : '<tr><td colspan="7">Ainda não existem encomendas Ammunation.</td></tr>';
+  const ammunationOrdersList = orders
+    .filter((order) => isMoneyOrder(order))
+    .filter((order) => orderMatchesSearch(order, query));
+
+  const { pageItems, totalPages, safePage } = paginateList(ammunationOrdersList, state.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((order, index) => renderOrderRow(order, index)).join('')
+    : `<tr><td colspan="7">${query ? 'Nenhuma encomenda encontrada para essa pesquisa.' : 'Ainda não existem encomendas Ammunation.'}</td></tr>`;
+
+  renderPager('#ammunationOrdersPager', 'ammunationOrders', totalPages, safePage);
 }
 
 function publicOrderStatusLabel(status) {
@@ -802,8 +1128,18 @@ function renderPublicOrders() {
 
   if (!table) return;
 
-  table.innerHTML = publicOrders.length
-    ? publicOrders.map((order) => `
+  const state = listUIState.publicOrders;
+  const query = state.query.trim();
+
+  const filtered = publicOrders.filter((order) => textMatches(
+    [`#${order.id}`, order.contactName, order.contactInfo],
+    query
+  ));
+
+  const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((order) => `
       <tr>
         <td>#${order.id}</td>
         <td>
@@ -821,7 +1157,9 @@ function renderPublicOrders() {
         </td>
       </tr>
     `).join('')
-    : '<tr><td colspan="7">Não existem pedidos públicos para este filtro.</td></tr>';
+    : `<tr><td colspan="7">${query ? 'Nenhum pedido encontrado para essa pesquisa.' : 'Não existem pedidos públicos para este filtro.'}</td></tr>`;
+
+  renderPager('#publicOrdersPager', 'publicOrders', totalPages, safePage);
 }
 
 function selectedOrderRecipes() {
@@ -1238,7 +1576,7 @@ async function showOrderDetail(id) {
 
     $('#orderDetailDialog').showModal();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1318,7 +1656,7 @@ async function showPublicOrderDetail(id) {
     renderPublicOrderDetailActions(order);
     $('#publicOrderDetailDialog').showModal();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1327,7 +1665,7 @@ async function openConvertPublicOrder(id) {
     const { publicOrder: order } = await request(`/api/public-orders/${id}`);
 
     if (order.status === 'accepted') {
-      alert('Este pedido já foi convertido numa encomenda interna.');
+      showToast('Este pedido já foi convertido numa encomenda interna.', 'info');
       return;
     }
 
@@ -1352,7 +1690,7 @@ async function openConvertPublicOrder(id) {
     $('#publicOrderDetailDialog').close();
     $('#convertPublicOrderDialog').showModal();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1363,6 +1701,7 @@ async function loadUsers() {
     return;
   }
 
+  setTableLoading('#usersTable', 5);
   const data = await request('/api/users');
   users = data.users;
   renderUsers();
@@ -1377,6 +1716,8 @@ async function loadCrafting() {
     renderRecipes();
     return;
   }
+
+  setTableLoading('#recipesTable', 6);
 
   const [materialsData, recipesData] = await Promise.all([
     request('/api/materials'),
@@ -1412,6 +1753,9 @@ async function loadOrders() {
     return;
   }
 
+  setTableLoading('#ordersTable', 7);
+  setTableLoading('#ammunationOrdersTable', 7);
+
   const data = await request('/api/orders');
   orders = data.orders;
   renderOrders();
@@ -1427,6 +1771,8 @@ async function loadPublicOrders() {
     renderPublicOrders();
     return;
   }
+
+  setTableLoading('#publicOrdersTable', 7);
 
   const data = await request('/api/public-orders');
   const filter = $('#publicOrdersFilter')?.value || 'pending';
@@ -1446,6 +1792,7 @@ async function loadChest() {
     return;
   }
 
+  setGridLoading('#chestTable');
   const data = await request('/api/chest');
   chestItems = data.items;
   chestLogs = data.logs;
@@ -1461,6 +1808,7 @@ async function loadResidentsChest() {
     return;
   }
 
+  setGridLoading('#residentsChestTable');
   const data = await request('/api/residents-chest');
   residentsChestItems = data.items;
   residentsChestLogs = data.logs;
@@ -1476,6 +1824,7 @@ async function loadOfficials() {
     return;
   }
 
+  setGridLoading('#officialsChestTable');
   const data = await request('/api/officials-chest');
   officialsChestItems = data.items;
   officialsChestLogs = data.logs;
@@ -1491,6 +1840,7 @@ async function loadOrdersChest() {
     return;
   }
 
+  setGridLoading('#ordersChestTable');
   const data = await request('/api/orders-chest');
   ordersChestItems = data.items;
   ordersChestLogs = data.logs;
@@ -1541,6 +1891,7 @@ async function loadAuditLogs() {
     return;
   }
 
+  setTableLoading('#auditLogsTable', 4);
   const data = await request('/api/audit-logs');
   auditLogs = data.logs;
   renderAuditLogs();
@@ -1551,8 +1902,18 @@ function renderAuditLogs() {
 
   if (!table) return;
 
-  table.innerHTML = auditLogs.length
-    ? auditLogs.map((log) => `
+  const state = listUIState.auditLogs;
+  const query = state.query.trim();
+
+  const filtered = auditLogs.filter((log) => textMatches(
+    [log.actorUsername, log.action, log.targetUsername],
+    query
+  ));
+
+  const { pageItems, totalPages, safePage } = paginateList(filtered, state.page);
+
+  table.innerHTML = pageItems.length
+    ? pageItems.map((log) => `
       <tr>
         <td>${formatDate(log.createdAt)}</td>
         <td>${escapeHTML(log.actorUsername)}</td>
@@ -1560,7 +1921,9 @@ function renderAuditLogs() {
         <td>${escapeHTML(log.targetUsername || '—')}</td>
       </tr>
     `).join('')
-    : '<tr><td colspan="4">Ainda não existem registos de atividade.</td></tr>';
+    : `<tr><td colspan="4">${query ? 'Nenhum registo encontrado para essa pesquisa.' : 'Ainda não existem registos de atividade.'}</td></tr>`;
+
+  renderPager('#auditLogsPager', 'auditLogs', totalPages, safePage);
 }
 
 async function loadAll() {
@@ -1601,7 +1964,7 @@ async function openOrderBuilder() {
     renderOrderBuilder();
     $('#orderDialog').showModal();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1621,7 +1984,7 @@ async function openAmmunationOrder() {
     renderAmmunationItems();
     $('#ammunationDialog').showModal();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 }
 
@@ -1781,7 +2144,7 @@ $('#passwordForm').addEventListener('submit', async (event) => {
     });
 
     $('#passwordDialog').close();
-    alert('A tua palavra-passe foi alterada com sucesso.');
+    showToast('A tua palavra-passe foi alterada com sucesso.', 'success');
   } catch (error) {
     errorElement.textContent = error.message;
   }
@@ -1818,7 +2181,7 @@ $('#resetPasswordForm').addEventListener('submit', async (event) => {
     });
 
     $('#resetPasswordDialog').close();
-    alert(`A palavra-passe de ${resetPasswordTarget.username} foi reposta com sucesso.`);
+    showToast(`A palavra-passe de ${resetPasswordTarget.username} foi reposta com sucesso.`, 'success');
     resetPasswordTarget = null;
   } catch (error) {
     errorElement.textContent = error.message;
@@ -2336,8 +2699,19 @@ $('#openOrderDialog').addEventListener('click', openOrderBuilder);
 
 $('#ordersSearchInput').addEventListener('input', (event) => {
   ordersSearchQuery = event.target.value;
+  listUIState.orders.page = 1;
   renderOrders();
 });
+
+bindListSearch('#usersSearchInput', 'users');
+bindListSearch('#recipesSearchInput', 'recipes');
+bindListSearch('#chestSearchInput', 'chest');
+bindListSearch('#residentsChestSearchInput', 'residentsChest');
+bindListSearch('#officialsChestSearchInput', 'officialsChest');
+bindListSearch('#ordersChestSearchInput', 'ordersChest');
+bindListSearch('#ammunationOrdersSearchInput', 'ammunationOrders');
+bindListSearch('#publicOrdersSearchInput', 'publicOrders');
+bindListSearch('#auditLogsSearchInput', 'auditLogs');
 
 $('#closeOrderDialog').addEventListener('click', () => {
   $('#orderDialog').close();
@@ -2450,6 +2824,7 @@ $('#refreshPublicOrders')?.addEventListener('click', () => {
 });
 
 $('#publicOrdersFilter')?.addEventListener('change', () => {
+  listUIState.publicOrders.page = 1;
   loadPublicOrders();
 });
 
@@ -2525,9 +2900,27 @@ document.addEventListener('click', async (event) => {
   }
 
   if (publicOrderReject) {
-    const reason = prompt('Justificação para rejeitar este pedido (obrigatória):');
+    const values = await openPromptDialog({
+      title: 'Rejeitar pedido',
+      confirmLabel: 'Rejeitar pedido',
+      danger: true,
+      fields: [{
+        id: 'reason',
+        label: 'Justificação para rejeitar este pedido (obrigatória)',
+        type: 'textarea',
+        required: true,
+        maxlength: 500
+      }]
+    });
 
-    if (reason === null) return;
+    if (!values) return;
+
+    const reason = values.reason.trim();
+
+    if (!reason) {
+      showToast('A justificação é obrigatória para rejeitar um pedido.', 'error');
+      return;
+    }
 
     try {
       await request(`/api/public-orders/${publicOrderReject.dataset.publicOrderReject}/reject`, {
@@ -2536,6 +2929,7 @@ document.addEventListener('click', async (event) => {
       });
 
       $('#publicOrderDetailDialog').close();
+      showToast('Pedido rejeitado.', 'success');
       await loadPublicOrders();
     } catch (error) {
       $('#publicOrderActionError').textContent = error.message;
@@ -2560,7 +2954,13 @@ document.addEventListener('click', async (event) => {
   }
 
   if (publicOrderSpam) {
-    if (!confirm('Marcar este pedido como spam?')) return;
+    const confirmed = await confirmDialog('Marcar este pedido como spam?', {
+      title: 'Marcar como spam',
+      confirmLabel: 'Marcar spam',
+      danger: true
+    });
+
+    if (!confirmed) return;
 
     try {
       await request(`/api/public-orders/${publicOrderSpam.dataset.publicOrderSpam}/spam`, {
@@ -2635,12 +3035,13 @@ document.addEventListener('click', async (event) => {
     }
 
     if (userDelete) {
-      if (!confirm('Queres apagar este utilizador?')) return;
+      if (!(await confirmDialog('Queres apagar este utilizador? Esta ação não pode ser desfeita.', { title: 'Apagar utilizador', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/users/${userDelete.dataset.userDelete}`, {
         method: 'DELETE'
       });
 
+      showToast('Utilizador apagado.', 'success');
       await loadUsers();
       return;
     }
@@ -2674,12 +3075,13 @@ document.addEventListener('click', async (event) => {
     }
 
     if (recipeDelete) {
-      if (!confirm('Queres apagar esta receita? Esta ação não pode ser desfeita.')) return;
+      if (!(await confirmDialog('Queres apagar esta receita? Esta ação não pode ser desfeita.', { title: 'Apagar receita', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/catalog/${recipeDelete.dataset.recipeDelete}`, {
         method: 'DELETE'
       });
 
+      showToast('Receita apagada.', 'success');
       await loadCrafting();
       return;
     }
@@ -2689,25 +3091,38 @@ document.addEventListener('click', async (event) => {
 
       if (!recipe) return;
 
-      const cleanInput = prompt(
-        `Preço com dinheiro limpo para ${recipe.name}:`,
-        recipe.cleanPrice ?? recipe.unitPrice ?? 0
-      );
+      const values = await openPromptDialog({
+        title: `Preços Ammunation — ${recipe.name}`,
+        confirmLabel: 'Guardar preços',
+        fields: [
+          {
+            id: 'clean',
+            label: 'Preço com dinheiro limpo',
+            type: 'number',
+            min: 0,
+            step: 1,
+            value: recipe.cleanPrice ?? recipe.unitPrice ?? 0,
+            required: true
+          },
+          {
+            id: 'dirty',
+            label: 'Preço com dinheiro sujo',
+            type: 'number',
+            min: 0,
+            step: 1,
+            value: recipe.dirtyPrice ?? recipe.unitPrice ?? 0,
+            required: true
+          }
+        ]
+      });
 
-      if (cleanInput === null) return;
+      if (!values) return;
 
-      const dirtyInput = prompt(
-        `Preço com dinheiro sujo para ${recipe.name}:`,
-        recipe.dirtyPrice ?? recipe.unitPrice ?? 0
-      );
-
-      if (dirtyInput === null) return;
-
-      const cleanPrice = Number(cleanInput);
-      const dirtyPrice = Number(dirtyInput);
+      const cleanPrice = Number(values.clean);
+      const dirtyPrice = Number(values.dirty);
 
       if (!Number.isInteger(cleanPrice) || !Number.isInteger(dirtyPrice) || cleanPrice < 0 || dirtyPrice < 0) {
-        alert('Usa apenas números inteiros iguais ou superiores a zero.');
+        showToast('Usa apenas números inteiros iguais ou superiores a zero.', 'error');
         return;
       }
 
@@ -2716,6 +3131,7 @@ document.addEventListener('click', async (event) => {
         body: JSON.stringify({ cleanPrice, dirtyPrice })
       });
 
+      showToast('Preços atualizados.', 'success');
       await loadCrafting();
       return;
     }
@@ -2733,9 +3149,10 @@ document.addEventListener('click', async (event) => {
     if (chestDelete) {
       const id = Number(chestDelete.dataset.chestDelete);
 
-      if (!confirm('Queres apagar este item do Baú 113?')) return;
+      if (!(await confirmDialog('Queres apagar este item do Baú 113?', { title: 'Apagar item', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/chest/${id}`, { method: 'DELETE' });
+      showToast('Item apagado do Baú 113.', 'success');
       await loadChest();
       return;
     }
@@ -2775,9 +3192,10 @@ document.addEventListener('click', async (event) => {
     if (residentsChestDelete) {
       const id = Number(residentsChestDelete.dataset.residentsChestDelete);
 
-      if (!confirm('Queres apagar este item do Baú Moradores?')) return;
+      if (!(await confirmDialog('Queres apagar este item do Baú Moradores?', { title: 'Apagar item', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/residents-chest/${id}`, { method: 'DELETE' });
+      showToast('Item apagado do Baú Moradores.', 'success');
       await loadResidentsChest();
       return;
     }
@@ -2817,9 +3235,10 @@ document.addEventListener('click', async (event) => {
     if (officialsChestDelete) {
       const id = Number(officialsChestDelete.dataset.officialsChestDelete);
 
-      if (!confirm('Queres apagar este item do Baú Oficiais?')) return;
+      if (!(await confirmDialog('Queres apagar este item do Baú Oficiais?', { title: 'Apagar item', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/officials-chest/${id}`, { method: 'DELETE' });
+      showToast('Item apagado do Baú Oficiais.', 'success');
       await loadOfficials();
       return;
     }
@@ -2859,9 +3278,10 @@ document.addEventListener('click', async (event) => {
     if (ordersChestDelete) {
       const id = Number(ordersChestDelete.dataset.ordersChestDelete);
 
-      if (!confirm('Queres apagar este item do Baú de Encomendas?')) return;
+      if (!(await confirmDialog('Queres apagar este item do Baú de Encomendas?', { title: 'Apagar item', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/orders-chest/${id}`, { method: 'DELETE' });
+      showToast('Item apagado do Baú de Encomendas.', 'success');
       await loadOrdersChest();
       return;
     }
@@ -2887,16 +3307,17 @@ document.addEventListener('click', async (event) => {
     }
 
     if (orderDelete) {
-      if (!confirm('Queres apagar esta encomenda?')) return;
+      if (!(await confirmDialog('Queres apagar esta encomenda?', { title: 'Apagar encomenda', confirmLabel: 'Apagar', danger: true }))) return;
 
       await request(`/api/orders/${orderDelete.dataset.orderDelete}`, {
         method: 'DELETE'
       });
 
+      showToast('Encomenda apagada.', 'success');
       await loadOrders();
     }
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
   }
 });
 
@@ -2913,7 +3334,7 @@ document.addEventListener('change', async (event) => {
 
     await loadOrders();
   } catch (error) {
-    alert(error.message);
+    showToast(error.message, 'error');
     await loadOrders();
   }
 });
