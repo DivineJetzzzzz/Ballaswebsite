@@ -222,6 +222,16 @@ db.exec(`
     FOREIGN KEY (public_order_id) REFERENCES public_orders(id) ON DELETE CASCADE,
     FOREIGN KEY (catalog_item_id) REFERENCES catalog_items(id) ON DELETE SET NULL
   );
+
+  -- Cada baú (casa) está dividido em 2 secções (ex.: "Armas" / "Materiais"),
+  -- espelhando os 2 baús físicos que existem no jogo por casa. Os nomes das
+  -- secções são configuráveis por baú, com "Baú A" / "Baú B" como omissão.
+  CREATE TABLE IF NOT EXISTS chest_compartment_labels (
+    chest_key TEXT NOT NULL,
+    compartment TEXT NOT NULL,
+    label TEXT NOT NULL,
+    PRIMARY KEY (chest_key, compartment)
+  );
 `);
 
 function addColumnIfMissing(table, column, definition) {
@@ -255,6 +265,41 @@ addColumnIfMissing('chest_items', 'image_url', 'TEXT');
 addColumnIfMissing('residents_chest_items', 'image_url', 'TEXT');
 addColumnIfMissing('officials_chest_items', 'image_url', 'TEXT');
 addColumnIfMissing('orders_chest_items', 'image_url', 'TEXT');
+
+// Secção (Baú A / Baú B) a que cada item pertence, dentro do baú da casa —
+// reflete os 2 baús físicos que cada casa tem no jogo. Itens já existentes
+// arrancam todos em 'A'; passam a poder ser movidos para 'B' a partir daqui.
+addColumnIfMissing('chest_items', 'compartment', "TEXT NOT NULL DEFAULT 'A'");
+addColumnIfMissing('residents_chest_items', 'compartment', "TEXT NOT NULL DEFAULT 'A'");
+addColumnIfMissing('officials_chest_items', 'compartment', "TEXT NOT NULL DEFAULT 'A'");
+addColumnIfMissing('orders_chest_items', 'compartment', "TEXT NOT NULL DEFAULT 'A'");
+
+const DEFAULT_COMPARTMENT_LABELS = { A: 'Baú A', B: 'Baú B' };
+
+const seedCompartmentLabel = db.prepare(`
+  INSERT OR IGNORE INTO chest_compartment_labels (chest_key, compartment, label)
+  VALUES (?, ?, ?)
+`);
+
+for (const chestKey of ['chest', 'residents', 'officials', 'orders']) {
+  for (const [compartment, label] of Object.entries(DEFAULT_COMPARTMENT_LABELS)) {
+    seedCompartmentLabel.run(chestKey, compartment, label);
+  }
+}
+
+function getCompartmentLabels(chestKey) {
+  const rows = db.prepare(`
+    SELECT compartment, label FROM chest_compartment_labels WHERE chest_key = ?
+  `).all(chestKey);
+
+  const labels = { ...DEFAULT_COMPARTMENT_LABELS };
+  for (const row of rows) labels[row.compartment] = row.label;
+  return labels;
+}
+
+function normaliseCompartment(value) {
+  return value === 'B' ? 'B' : value === 'A' ? 'A' : null;
+}
 
 // payment_preference (coluna antiga) continua a guardar UM valor, usado como
 // sugestão inicial ao converter o pedido numa encomenda interna. As escolhas
@@ -524,7 +569,9 @@ function migrateChestLogsTable(table) {
     WHERE type = 'table' AND name = ?
   `).get(table)?.sql || '';
 
-  if (!currentSql || currentSql.includes('transfer_in')) return;
+  if (!currentSql || currentSql.includes('compartment')) return;
+
+  const oldColumns = db.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name);
 
   db.pragma('foreign_keys = OFF');
 
@@ -536,22 +583,33 @@ function migrateChestLogsTable(table) {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         item_id INTEGER,
         item_name TEXT NOT NULL,
-        change_type TEXT NOT NULL CHECK(change_type IN ('add', 'remove', 'create', 'delete', 'transfer_in', 'transfer_out')),
+        change_type TEXT NOT NULL CHECK(change_type IN ('add', 'remove', 'create', 'delete', 'transfer_in', 'transfer_out', 'move')),
         quantity INTEGER NOT NULL DEFAULT 0,
         actor_id INTEGER,
         reason TEXT,
         order_id INTEGER,
         transfer_group TEXT,
         counterpart_label TEXT,
+        compartment TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
       );
     `);
 
+    // Copia apenas as colunas que já existiam na tabela anterior — cobre
+    // tanto uma tabela "original" (sem reason/order_id/...) como uma já
+    // migrada anteriormente para suportar transferências, sem perder dados.
+    const targetColumns = [
+      'id', 'item_id', 'item_name', 'change_type', 'quantity', 'actor_id',
+      'reason', 'order_id', 'transfer_group', 'counterpart_label', 'created_at'
+    ];
+    const copyColumns = targetColumns.filter((column) => oldColumns.includes(column));
+    const columnList = copyColumns.join(', ');
+
     db.exec(`
-      INSERT INTO ${table} (id, item_id, item_name, change_type, quantity, actor_id, created_at)
-      SELECT id, item_id, item_name, change_type, quantity, actor_id, created_at
+      INSERT INTO ${table} (${columnList})
+      SELECT ${columnList}
       FROM ${table}_old;
     `);
 
@@ -965,13 +1023,14 @@ function publicChestItem(item) {
     minStock,
     lowStock: item.quantity < minStock,
     imageUrl: item.image_url || null,
+    compartment: normaliseCompartment(item.compartment) || 'A',
     updatedAt: item.updated_at
   };
 }
 
-function getChestResponse(itemsTable, logsTable) {
+function getChestResponse(itemsTable, logsTable, chestKey) {
   const items = db.prepare(`
-    SELECT id, name, quantity, min_stock, image_url, updated_at
+    SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
     FROM ${itemsTable}
     ORDER BY name COLLATE NOCASE ASC
   `).all();
@@ -987,6 +1046,7 @@ function getChestResponse(itemsTable, logsTable) {
 
   return {
     items: items.map(publicChestItem),
+    compartmentLabels: getCompartmentLabels(chestKey),
     logs: logs.map((log) => ({
       id: log.id,
       itemId: log.item_id,
@@ -999,19 +1059,49 @@ function getChestResponse(itemsTable, logsTable) {
       orderTitle: log.order_title || null,
       transferGroup: log.transfer_group || null,
       counterpartLabel: log.counterpart_label || null,
+      compartment: log.compartment || null,
       createdAt: log.created_at
     }))
   };
 }
 
-function createChestRoutes(prefix, itemsTable, logsTable, permission) {
+function createChestRoutes(prefix, itemsTable, logsTable, permission, chestKey) {
   app.get(prefix, requireAuth, permission, (req, res) => {
-    res.json(getChestResponse(itemsTable, logsTable));
+    res.json(getChestResponse(itemsTable, logsTable, chestKey));
+  });
+
+  // Registado antes de "/:id" para não ser interpretado como um id de item.
+  app.patch(`${prefix}/compartment-labels`, requireAuth, permission, (req, res, next) => {
+    try {
+      const labelA = cleanText(req.body.labelA, 2, 40);
+      const labelB = cleanText(req.body.labelB, 2, 40);
+
+      if (!labelA || !labelB) {
+        return res.status(400).json({
+          error: 'Indica um nome válido (2 a 40 caracteres) para os dois baús.'
+        });
+      }
+
+      const upsertLabel = db.prepare(`
+        INSERT INTO chest_compartment_labels (chest_key, compartment, label)
+        VALUES (?, ?, ?)
+        ON CONFLICT(chest_key, compartment) DO UPDATE SET label = excluded.label
+      `);
+
+      upsertLabel.run(chestKey, 'A', labelA);
+      upsertLabel.run(chestKey, 'B', labelB);
+
+      logAction(req.user.id, `${itemsTable}_compartment_labels`, `${labelA} / ${labelB}`);
+      res.json({ compartmentLabels: getCompartmentLabels(chestKey) });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post(prefix, requireAuth, permission, (req, res, next) => {
     try {
       const name = cleanText(req.body.name, 2, 80);
+      const compartment = normaliseCompartment(req.body.compartment) || 'A';
 
       if (!name) {
         return res.status(400).json({
@@ -1020,20 +1110,20 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const result = db.prepare(`
-        INSERT INTO ${itemsTable} (name, quantity)
-        VALUES (?, 0)
-      `).run(name);
+        INSERT INTO ${itemsTable} (name, quantity, compartment)
+        VALUES (?, 0, ?)
+      `).run(name, compartment);
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(result.lastInsertRowid);
 
       db.prepare(`
-        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id)
-        VALUES (?, ?, 'create', 0, ?)
-      `).run(item.id, item.name, req.user.id);
+        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, compartment)
+        VALUES (?, ?, 'create', 0, ?, ?)
+      `).run(item.id, item.name, req.user.id, item.compartment);
 
       logAction(req.user.id, `create_${itemsTable}_item`, item.name);
       res.status(201).json({ item: publicChestItem(item) });
@@ -1065,7 +1155,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1091,17 +1181,70 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(newQuantity, id);
 
       db.prepare(`
-        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, reason, order_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
+        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, reason, order_id, compartment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId, item.compartment);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
 
       logAction(req.user.id, `${itemsTable}_${action}`, item.name);
+      res.json({ item: publicChestItem(updated) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Move um item entre as 2 secções do mesmo baú (ex.: de "Armas" para
+  // "Materiais"), sem apagar/recriar o item nem afetar a quantidade.
+  app.patch(`${prefix}/:id/compartment`, requireAuth, permission, (req, res, next) => {
+    try {
+      const id = ensureInteger(req.params.id, 1);
+      const compartment = normaliseCompartment(req.body.compartment);
+
+      if (!id || !compartment) {
+        return res.status(400).json({ error: 'Indica para que secção do Baú queres mover o item.' });
+      }
+
+      const item = db.prepare(`
+        SELECT id, name, compartment
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      if (!item) {
+        return res.status(404).json({ error: 'Item do Baú não encontrado.' });
+      }
+
+      const currentCompartment = normaliseCompartment(item.compartment) || 'A';
+
+      if (currentCompartment === compartment) {
+        return res.status(400).json({ error: 'O item já está nessa secção do Baú.' });
+      }
+
+      const labels = getCompartmentLabels(chestKey);
+
+      db.prepare(`
+        UPDATE ${itemsTable}
+        SET compartment = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(compartment, id);
+
+      db.prepare(`
+        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, counterpart_label, compartment)
+        VALUES (?, ?, 'move', 0, ?, ?, ?)
+      `).run(id, item.name, req.user.id, `${labels[currentCompartment]} → ${labels[compartment]}`, compartment);
+
+      const updated = db.prepare(`
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
+        FROM ${itemsTable}
+        WHERE id = ?
+      `).get(id);
+
+      logAction(req.user.id, `${itemsTable}_move`, item.name);
       res.json({ item: publicChestItem(updated) });
     } catch (error) {
       next(error);
@@ -1117,7 +1260,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity
+        SELECT id, name, quantity, compartment
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1127,9 +1270,9 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       db.prepare(`
-        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id)
-        VALUES (?, ?, 'delete', ?, ?)
-      `).run(id, item.name, item.quantity, req.user.id);
+        INSERT INTO ${logsTable} (item_id, item_name, change_type, quantity, actor_id, compartment)
+        VALUES (?, ?, 'delete', ?, ?, ?)
+      `).run(id, item.name, item.quantity, req.user.id, item.compartment);
 
       db.prepare(`DELETE FROM ${itemsTable} WHERE id = ?`).run(id);
 
@@ -1152,7 +1295,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1168,7 +1311,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(minStock, id);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1194,7 +1337,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       }
 
       const item = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -1210,7 +1353,7 @@ function createChestRoutes(prefix, itemsTable, logsTable, permission) {
       `).run(imageResult.imageUrl, id);
 
       const updated = db.prepare(`
-        SELECT id, name, quantity, min_stock, image_url, updated_at
+        SELECT id, name, quantity, min_stock, image_url, compartment, updated_at
         FROM ${itemsTable}
         WHERE id = ?
       `).get(id);
@@ -2894,242 +3037,34 @@ app.post('/api/public-orders/:id/convert', requireAuth, requireAdmin, (req, res,
   }
 });
 
-app.get('/api/chest', requireAuth, (req, res) => {
-  res.json(getChestResponse('chest_items', 'chest_logs'));
-});
-
-app.post('/api/chest', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const name = cleanText(req.body.name, 2, 80);
-
-    if (!name) {
-      return res.status(400).json({
-        error: 'O nome do item deve ter entre 2 e 80 caracteres.'
-      });
-    }
-
-    const result = db.prepare(`
-      INSERT INTO chest_items (name, quantity)
-      VALUES (?, 0)
-    `).run(name);
-
-    const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(result.lastInsertRowid);
-
-    db.prepare(`
-      INSERT INTO chest_logs (item_id, item_name, change_type, quantity, actor_id)
-      VALUES (?, ?, 'create', 0, ?)
-    `).run(item.id, item.name, req.user.id);
-
-    logAction(req.user.id, 'create_chest_item', item.name);
-    res.status(201).json({ item: publicChestItem(item) });
-  } catch (error) {
-    if (String(error.message).includes('UNIQUE constraint failed')) {
-      return res.status(409).json({
-        error: 'Já existe um item com esse nome no Baú 113.'
-      });
-    }
-
-    next(error);
-  }
-});
-
-app.patch('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const id = ensureInteger(req.params.id, 1);
-    const action = req.body.action === 'remove' ? 'remove' : 'add';
-    const quantity = ensureInteger(req.body.quantity, 1, 1000000000);
-
-    if (!id || !quantity) {
-      return res.status(400).json({ error: 'Movimento de Baú 113 inválido.' });
-    }
-
-    const justification = resolveMovementJustification(req.body);
-
-    if (justification.error) {
-      return res.status(400).json({ error: justification.error });
-    }
-
-    const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    if (!item) {
-      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
-    }
-
-    if (action === 'remove' && item.quantity < quantity) {
-      return res.status(400).json({
-        error: 'Não existe quantidade suficiente no Baú 113.'
-      });
-    }
-
-    const newQuantity = action === 'add'
-      ? item.quantity + quantity
-      : item.quantity - quantity;
-
-    db.prepare(`
-      UPDATE chest_items
-      SET quantity = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(newQuantity, id);
-
-    db.prepare(`
-      INSERT INTO chest_logs (item_id, item_name, change_type, quantity, actor_id, reason, order_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, item.name, action, quantity, req.user.id, justification.reason, justification.orderId);
-
-    const updated = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    logAction(req.user.id, `chest_${action}`, item.name);
-    res.json({ item: publicChestItem(updated) });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.delete('/api/chest/:id', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const id = ensureInteger(req.params.id, 1);
-
-    if (!id) {
-      return res.status(400).json({ error: 'Item do Baú 113 inválido.' });
-    }
-
-    const item = db.prepare(`
-      SELECT id, name, quantity
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    if (!item) {
-      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
-    }
-
-    db.prepare(`
-      INSERT INTO chest_logs (item_id, item_name, change_type, quantity, actor_id)
-      VALUES (?, ?, 'delete', ?, ?)
-    `).run(id, item.name, item.quantity, req.user.id);
-
-    db.prepare('DELETE FROM chest_items WHERE id = ?').run(id);
-
-    logAction(req.user.id, 'delete_chest_item', item.name);
-    res.status(204).end();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Permite definir o stock mínimo de um item do Baú 113, usado para calcular
-// os alertas de stock (item.quantity < item.min_stock).
-app.patch('/api/chest/:id/min-stock', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const id = ensureInteger(req.params.id, 1);
-    const minStock = ensureInteger(req.body.minStock, 0, 1000000000);
-
-    if (!id || minStock === null) {
-      return res.status(400).json({ error: 'Stock mínimo inválido.' });
-    }
-
-    const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    if (!item) {
-      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
-    }
-
-    db.prepare(`
-      UPDATE chest_items
-      SET min_stock = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(minStock, id);
-
-    const updated = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    logAction(req.user.id, 'chest_min_stock', item.name);
-    res.json({ item: publicChestItem(updated) });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Permite definir (ou remover) o URL de imagem de um item do Baú 113, usado
-// só para mostrar uma miniatura mais bonita no cartão do item.
-app.patch('/api/chest/:id/image', requireAuth, requireAdmin, (req, res, next) => {
-  try {
-    const id = ensureInteger(req.params.id, 1);
-    const imageResult = cleanImageUrl(req.body.imageUrl);
-
-    if (!id || imageResult.error) {
-      return res.status(400).json({
-        error: 'Indica um URL de imagem válido (http:// ou https://) ou deixa em branco para remover.'
-      });
-    }
-
-    const item = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    if (!item) {
-      return res.status(404).json({ error: 'Item do Baú 113 não encontrado.' });
-    }
-
-    db.prepare(`
-      UPDATE chest_items
-      SET image_url = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(imageResult.imageUrl, id);
-
-    const updated = db.prepare(`
-      SELECT id, name, quantity, min_stock, image_url, updated_at
-      FROM chest_items
-      WHERE id = ?
-    `).get(id);
-
-    logAction(req.user.id, 'chest_image', item.name);
-    res.json({ item: publicChestItem(updated) });
-  } catch (error) {
-    next(error);
-  }
-});
+// Baú 113 usa a mesma factory genérica dos outros 3 baús (residentes,
+// oficiais, encomendas), para garantir que todas as funcionalidades — baú
+// A/B, pesquisa, transferências, etc. — se comportam de forma idêntica nos
+// 4 baús sem duplicar a lógica 4 vezes.
+createChestRoutes('/api/chest', 'chest_items', 'chest_logs', requireAdmin, 'chest');
 
 createChestRoutes(
   '/api/residents-chest',
   'residents_chest_items',
   'residents_chest_logs',
-  requireResidentChiefOrAdmin
+  requireResidentChiefOrAdmin,
+  'residents'
 );
 
 createChestRoutes(
   '/api/officials-chest',
   'officials_chest_items',
   'officials_chest_logs',
-  requireOfficialsOrAdmin
+  requireOfficialsOrAdmin,
+  'officials'
 );
 
 createChestRoutes(
   '/api/orders-chest',
   'orders_chest_items',
   'orders_chest_logs',
-  requireAdmin
+  requireAdmin,
+  'orders'
 );
 
 app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
@@ -3177,7 +3112,7 @@ app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
     }
 
     const sourceItem = db.prepare(`
-      SELECT id, name, quantity
+      SELECT id, name, quantity, compartment
       FROM ${from.itemsTable}
       WHERE name = ?
     `).get(name);
@@ -3208,10 +3143,12 @@ app.post('/api/chest-transfers', requireAuth, (req, res, next) => {
       `).get(sourceItem.name);
 
       if (!destItem) {
+        // Mantém a mesma secção (Baú A/B) do item de origem como sugestão
+        // inicial no baú de destino — pode ser alterada depois lá.
         const inserted = db.prepare(`
-          INSERT INTO ${to.itemsTable} (name, quantity)
-          VALUES (?, 0)
-        `).run(sourceItem.name);
+          INSERT INTO ${to.itemsTable} (name, quantity, compartment)
+          VALUES (?, 0, ?)
+        `).run(sourceItem.name, normaliseCompartment(sourceItem.compartment) || 'A');
 
         destItem = { id: inserted.lastInsertRowid, name: sourceItem.name, quantity: 0 };
       }
@@ -3290,17 +3227,23 @@ app.get('/api/stock-alerts', requireAuth, (req, res) => {
   for (const [chestKey, config] of Object.entries(CHEST_CONFIG)) {
     if (!config.canAccess(req.user.role)) continue;
 
+    const labels = getCompartmentLabels(chestKey);
+
     const lowItems = db.prepare(`
-      SELECT id, name, quantity, min_stock, updated_at
+      SELECT id, name, quantity, min_stock, compartment, updated_at
       FROM ${config.itemsTable}
       WHERE quantity < min_stock
       ORDER BY (min_stock - quantity) DESC, name COLLATE NOCASE ASC
     `).all();
 
     for (const item of lowItems) {
+      const compartment = normaliseCompartment(item.compartment) || 'A';
+
       alerts.push({
         chestKey,
         chestLabel: config.label,
+        compartment,
+        compartmentLabel: labels[compartment] || compartment,
         ...publicChestItem(item)
       });
     }
